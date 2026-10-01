@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PatrimonioOS - Control de Finanzas y Patrimonio</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #0f172a; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(51, 65, 85, 0.5);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col custom-scrollbar">
+
+  <header class="border-b border-slate-800/80 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        
+        <!-- Brand Logo -->
+        <div class="flex items-center space-x-3 cursor-pointer" onclick="switchTab('dashboard')">
+          <div class="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-500/5">
+            <i class="fa-solid fa-chart-line text-xl"></i>
+          </div>
+          <div>
+            <span class="font-extrabold text-lg tracking-tight bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">PatrimonioOS</span>
+            <span class="block text-[10px] text-slate-400 font-medium -mt-1">Control Financiero Integral</span>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs (Desktop) -->
+        <nav class="hidden md:flex items-center space-x-1 bg-slate-950/60 p-1.5 rounded-xl border border-slate-800/80">
+          <button id="nav-dashboard" onclick="switchTab('dashboard')" class="nav-btn px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 flex items-center gap-2">
+            <i class="fa-solid fa-chart-pie"></i> Visor General
+          </button>
+          <button id="nav-onboarding" onclick="switchTab('onboarding')" class="nav-btn px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 flex items-center gap-2">
+            <i class="fa-solid fa-compass"></i> Situación Inicial
+          </button>
+          <button id="nav-monthly" onclick="switchTab('monthly')" class="nav-btn px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 flex items-center gap-2">
+            <i class="fa-solid fa-calendar-plus"></i> Cierre Mensual
+          </button>
+          <button id="nav-elegirme" onclick="switchTab('elegirme')" class="nav-btn px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 flex items-center gap-2">
+            <i class="fa-solid fa-heart-pulse"></i> Elegirme & Metas
+          </button>
+          <button id="nav-settings" onclick="switchTab('settings')" class="nav-btn px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 flex items-center gap-2">
+            <i class="fa-solid fa-sliders"></i> Ajustes
+          </button>
+        </nav>
+
+        <!-- Global Action Buttons -->
+        <div class="flex items-center space-x-2">
+          <button onclick="exportJSON()" class="p-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition border border-slate-700/80" title="Exportar Backup">
+            <i class="fa-solid fa-download"></i>
+          </button>
+          <button onclick="document.getElementById('importInput').click()" class="p-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition border border-slate-700/80" title="Importar Backup">
+            <i class="fa-solid fa-upload"></i>
+          </button>
+          <input type="file" id="importInput" class="hidden" accept=".json" onchange="importJSON(event)">
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Navigation Bar -->
+    <div class="md:hidden border-t border-slate-800/80 bg-slate-900/90 px-2 py-1.5 flex justify-around overflow-x-auto custom-scrollbar">
+      <button onclick="switchTab('dashboard')" id="mob-dashboard" class="mob-btn px-2.5 py-1.5 text-[11px] font-semibold rounded-lg text-slate-400 flex flex-col items-center gap-1">
+        <i class="fa-solid fa-chart-pie"></i> Dashboard
+      </button>
+      <button onclick="switchTab('onboarding')" id="mob-onboarding" class="mob-btn px-2.5 py-1.5 text-[11px] font-semibold rounded-lg text-slate-400 flex flex-col items-center gap-1">
+        <i class="fa-solid fa-compass"></i> Inicio
+      </button>
+      <button onclick="switchTab('monthly')" id="mob-monthly" class="mob-btn px-2.5 py-1.5 text-[11px] font-semibold rounded-lg text-slate-400 flex flex-col items-center gap-1">
+        <i class="fa-solid fa-calendar-plus"></i> Registro
+      </button>
+      <button onclick="switchTab('elegirme')" id="mob-elegirme" class="mob-btn px-2.5 py-1.5 text-[11px] font-semibold rounded-lg text-slate-400 flex flex-col items-center gap-1">
+        <i class="fa-solid fa-heart-pulse"></i> Elegirme
+      </button>
+      <button onclick="switchTab('settings')" id="mob-settings" class="mob-btn px-2.5 py-1.5 text-[11px] font-semibold rounded-lg text-slate-400 flex flex-col items-center gap-1">
+        <i class="fa-solid fa-sliders"></i> Ajustes
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
+
+    <!-- Notification Banner -->
+    <div id="toast" class="hidden fixed bottom-5 right-5 z-50 bg-emerald-500 text-slate-950 px-4 py-3 rounded-xl shadow-2xl font-semibold text-sm flex items-center gap-3 transition-all duration-300">
+      <i class="fa-solid fa-circle-check text-lg"></i>
+      <span id="toast-message">Operación realizada con éxito</span>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- TAB 1: VISOR GENERAL (DASHBOARD)          -->
+    <!-- ========================================== -->
+    <section id="tab-dashboard" class="tab-content space-y-8">
+      
+      <!-- Top KPIs Grid -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        
+        <!-- KPI 1 -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+          <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
+            <span>Patrimonio Neto</span>
+            <span class="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg"><i class="fa-solid fa-vault"></i></span>
+          </div>
+          <div class="mt-3">
+            <div id="dash-kpi-networth" class="text-xl font-extrabold text-slate-50">0 €</div>
+            <div id="dash-kpi-networth-sub" class="text-[11px] text-slate-400 mt-1">Total Activos - Pasivos</div>
+          </div>
+        </div>
+
+        <!-- KPI 2 -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+          <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
+            <span>Liquidez Total</span>
+            <span class="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg"><i class="fa-solid fa-wallet"></i></span>
+          </div>
+          <div class="mt-3">
+            <div id="dash-kpi-cash" class="text-xl font-extrabold text-slate-50">0 €</div>
+            <div id="dash-kpi-runway" class="text-[11px] text-blue-400 font-medium mt-1">Colchón: 0 meses</div>
+          </div>
+        </div>
+
+        <!-- KPI 3 -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+          <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
+            <span>Inversiones</span>
+            <span class="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg"><i class="fa-solid fa-chart-line"></i></span>
+          </div>
+          <div class="mt-3">
+            <div id="dash-kpi-investments" class="text-xl font-extrabold text-slate-50">0 €</div>
+            <div id="dash-kpi-investments-share" class="text-[11px] text-slate-400 mt-1">0% del patrimonio</div>
+          </div>
+        </div>
+
+        <!-- KPI 4 -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+          <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
+            <span>Pasivos / Deudas</span>
+            <span class="p-1.5 bg-rose-500/10 text-rose-400 rounded-lg"><i class="fa-solid fa-hand-holding-dollar"></i></span>
+          </div>
+          <div class="mt-3">
+            <div id="dash-kpi-liabilities" class="text-xl font-extrabold text-rose-400">0 €</div>
+            <div class="text-[11px] text-slate-400 mt-1">Deuda pendiente</div>
+          </div>
+        </div>
+
+        <!-- KPI 5 -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+          <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
+            <span>Tasa de Ahorro</span>
+            <span class="p-1.5 bg-amber-500/10 text-amber-400 rounded-lg"><i class="fa-solid fa-piggy-bank"></i></span>
+          </div>
+          <div class="mt-3">
+            <div id="dash-kpi-savings-rate" class="text-xl font-extrabold text-slate-50">0%</div>
+            <div id="dash-kpi-savings-amount" class="text-[11px] text-slate-400 mt-1">0 € ahorrados</div>
+          </div>
+        </div>
+
+        <!-- KPI 6 -->
+        <div class="glass-card rounded-2xl p-4 flex flex-col justify-between">
+          <div class="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
+            <span>Libertad (Runway)</span>
+            <span class="p-1.5 bg-teal-500/10 text-teal-400 rounded-lg"><i class="fa-solid fa-hourglass-half"></i></span>
+          </div>
+          <div class="mt-3">
+            <div id="dash-kpi-freedom" class="text-xl font-extrabold text-teal-300">0 Meses</div>
+            <div class="text-[11px] text-slate-400 mt-1">Sin nuevos ingresos</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Charts Section -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Evolution Timeline Chart -->
+        <div class="lg:col-span-8 glass-card rounded-2xl p-6">
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                <i class="fa-solid fa-chart-area text-emerald-400"></i> Evolución Histórica de Patrimonio
+              </h2>
+              <p class="text-xs text-slate-400">Progreso neto, liquidez e inversiones acumuladas</p>
+            </div>
+          </div>
+          <div class="h-72 w-full">
+            <canvas id="chartEvolution"></canvas>
+          </div>
+        </div>
+
+        <!-- Investment Portfolio Asset Allocation -->
+        <div class="lg:col-span-4 glass-card rounded-2xl p-6">
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                <i class="fa-solid fa-pie-chart text-indigo-400"></i> Mix de Inversiones
+              </h2>
+              <p class="text-xs text-slate-400">Distribución por categoría de activo</p>
+            </div>
+          </div>
+          <div class="h-72 w-full flex items-center justify-center">
+            <canvas id="chartPortfolio"></canvas>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Monthly Expense Categories Chart & Recent History Table -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Expense Allocation Chart -->
+        <div class="lg:col-span-5 glass-card rounded-2xl p-6">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                <i class="fa-solid fa-chart-column text-amber-400"></i> Desglose de Gastos
+              </h2>
+              <p class="text-xs text-slate-400">Distribución por categorías del último registro</p>
+            </div>
+          </div>
+          <div class="h-64 w-full flex items-center justify-center">
+            <canvas id="chartExpenses"></canvas>
+          </div>
+        </div>
+
+        <!-- History Records Table -->
+        <div class="lg:col-span-7 glass-card rounded-2xl p-6 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+              <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                <i class="fa-solid fa-list-check text-slate-400"></i> Histórico de Registros
+              </h2>
+              <span id="history-badge" class="text-xs px-2.5 py-1 bg-slate-800 text-slate-300 rounded-full font-medium">0 Cierres</span>
+            </div>
+
+            <div class="overflow-x-auto custom-scrollbar">
+              <table class="w-full text-left text-xs">
+                <thead class="text-slate-400 uppercase bg-slate-950/60 border-b border-slate-800">
+                  <tr>
+                    <th class="py-3 px-3">Mes/Año</th>
+                    <th class="py-3 px-3">Ingresos</th>
+                    <th class="py-3 px-3">Gastos</th>
+                    <th class="py-3 px-3">Ahorro</th>
+                    <th class="py-3 px-3">Inversiones</th>
+                    <th class="py-3 px-3">Patrimonio</th>
+                    <th class="py-3 px-3 text-right">Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="dash-history-body" class="divide-y divide-slate-800/60 text-slate-300">
+                  <!-- Injected via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 2: SITUACIÓN INICIAL (ONBOARDING)      -->
+    <!-- ========================================== -->
+    <section id="tab-onboarding" class="tab-content hidden max-w-4xl mx-auto space-y-6">
+      
+      <div class="glass-card rounded-2xl p-6 sm:p-8">
+        <div class="flex items-center justify-between pb-6 border-b border-slate-800 mb-6">
+          <div>
+            <h2 class="text-xl font-bold text-slate-50 flex items-center gap-2">
+              <i class="fa-solid fa-compass text-emerald-400"></i> Configuración de Situación Inicial
+            </h2>
+            <p class="text-xs text-slate-400 mt-1">Define tu punto de partida financiero. Solo necesitarás ajustar esto al iniciar o al resetear tu estrategia.</p>
+          </div>
+          <button onclick="saveInitialState()" class="hidden sm:flex px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl text-xs transition gap-2 items-center">
+            <i class="fa-solid fa-floppy-disk"></i> Guardar Base
+          </button>
+        </div>
+
+        <form id="form-initial-state" class="space-y-6">
+          
+          <!-- 1. Liquidez Inicial -->
+          <div>
+            <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-coins text-blue-400"></i> 1. Efectivo y Liquidez Inicial
+            </h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Cuentas Corrientes y Colchón de Emergencia (€)</label>
+                <input type="number" step="0.01" id="init-cash" placeholder="Ej: 5000" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Fecha de Inicio Financiero</label>
+                <input type="month" id="init-date" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Portfolio de Inversión Inicial -->
+          <div class="pt-4 border-t border-slate-800">
+            <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-chart-pie text-indigo-400"></i> 2. Cartera de Inversión de Partida
+            </h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Renta Variable / Fondos Indexados (€)</label>
+                <input type="number" step="0.01" id="init-equity" placeholder="Ej: 10000" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Renta Fija / Bonos / Depósitos (€)</label>
+                <input type="number" step="0.01" id="init-bonds" placeholder="Ej: 2000" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Criptomonedas (€)</label>
+                <input type="number" step="0.01" id="init-crypto" placeholder="Ej: 1000" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Bienes Inmuebles / Valor Neto Real (€)</label>
+                <input type="number" step="0.01" id="init-realestate" placeholder="Ej: 0" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Deudas / Pasivos -->
+          <div class="pt-4 border-t border-slate-800">
+            <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-receipt text-rose-400"></i> 3. Deudas y Pasivos Iniciales
+            </h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Hipoteca Pendiente de Pago (€)</label>
+                <input type="number" step="0.01" id="init-mortgage" placeholder="Ej: 120000" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Préstamos Personales / Coche (€)</label>
+                <input type="number" step="0.01" id="init-loans" placeholder="Ej: 5000" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+            </div>
+          </div>
+
+          <!-- Form Actions -->
+          <div class="pt-6 border-t border-slate-800 flex justify-end gap-3">
+            <button type="button" onclick="resetInitialForm()" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-xs transition">
+              Restablecer Valores
+            </button>
+            <button type="submit" class="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl text-xs transition flex items-center gap-2">
+              <i class="fa-solid fa-floppy-disk"></i> Guardar Situación Inicial
+            </button>
+          </div>
+
+        </form>
+      </div>
+
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 3: REGISTRO / CIERRE MENSUAL           -->
+    <!-- ========================================== -->
+    <section id="tab-monthly" class="tab-content hidden max-w-5xl mx-auto space-y-6">
+      
+      <div class="glass-card rounded-2xl p-6 sm:p-8">
+        
+        <div class="flex items-center justify-between pb-6 border-b border-slate-800 mb-6">
+          <div>
+            <h2 class="text-xl font-bold text-slate-50 flex items-center gap-2">
+              <i class="fa-solid fa-calendar-plus text-emerald-400"></i> Registro de Cierre Mensual
+            </h2>
+            <p class="text-xs text-slate-400 mt-1">Dedica 2 minutos al mes para registrar tus números clave con categorías flexibles.</p>
+          </div>
+          <span class="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold rounded-lg">
+            Ahorro sin estrés
+          </span>
+        </div>
+
+        <form id="form-monthly-record" class="space-y-6">
+          
+          <!-- Period & Final Cash -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Periodo (Mes/Año)</label>
+              <input type="month" id="month-period" required class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">Efectivo / Liquidez Final (€)</label>
+              <input type="number" step="0.01" id="month-cash" required placeholder="Ej: 5800" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+            </div>
+          </div>
+
+          <!-- Ingresos Desglosados -->
+          <div>
+            <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-money-bill-wave text-emerald-400"></i> Ingresos del Mes
+            </h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Nómina / Principal (€)</label>
+                <input type="number" step="0.01" id="inc-main" placeholder="Ej: 2200" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Secundarios / Extras (€)</label>
+                <input type="number" step="0.01" id="inc-extra" placeholder="Ej: 300" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Rendimientos / Dividendos (€)</label>
+                <input type="number" step="0.01" id="inc-dividends" placeholder="Ej: 50" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Otros Ingresos (€)</label>
+                <input type="number" step="0.01" id="inc-other" placeholder="Ej: 100" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+            </div>
+          </div>
+
+          <!-- Gastos por Categorías Dinámicas y Personalizables -->
+          <div class="pt-4 border-t border-slate-800">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                <i class="fa-solid fa-tags text-amber-400"></i> Gastos del Mes por Categoría
+              </h3>
+              <span class="text-[11px] text-slate-400">Puedes escribir la categoría que quieras</span>
+            </div>
+
+            <!-- List of Category Inputs -->
+            <div id="expense-categories-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <!-- Dynamically rendered -->
+            </div>
+
+            <!-- Custom Category Addition Inline -->
+            <div class="mt-4 p-3 bg-slate-950/40 rounded-xl border border-slate-800/80 flex flex-col sm:flex-row items-center gap-3">
+              <div class="flex-grow w-full">
+                <input type="text" id="new-cat-name" placeholder="Escribe el nombre de una nueva categoría (ej: Mascotas, Regalos, Viajes)..." class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <button type="button" onclick="addNewCategoryFromInput()" class="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/20 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 whitespace-nowrap">
+                <i class="fa-solid fa-plus"></i> Añadir Categoría
+              </button>
+            </div>
+          </div>
+
+          <!-- Inversiones al cierre del mes -->
+          <div class="pt-4 border-t border-slate-800">
+            <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-chart-line text-indigo-400"></i> Valor Total de Inversiones al Cierre
+            </h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Renta Variable / Fondos (€)</label>
+                <input type="number" step="0.01" id="inv-equity" placeholder="Valor actual" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Renta Fija / Depósitos (€)</label>
+                <input type="number" step="0.01" id="inv-bonds" placeholder="Valor actual" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Cripto / Activos Alt (€)</label>
+                <input type="number" step="0.01" id="inv-crypto" placeholder="Valor actual" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Deuda Pendiente al Cierre (€)</label>
+                <input type="number" step="0.01" id="inv-liabilities" placeholder="Valor actual" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="pt-6 border-t border-slate-800 flex justify-end gap-3">
+            <button type="submit" class="w-full sm:w-auto px-8 py-3 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2">
+              <i class="fa-solid fa-check-circle text-base"></i> Guardar Cierre del Mes
+            </button>
+          </div>
+
+        </form>
+
+      </div>
+
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 4: ELEGIRME & OBJETIVOS PERSONALES     -->
+    <!-- ========================================== -->
+    <section id="tab-elegirme" class="tab-content hidden space-y-8">
+      
+      <!-- Section Intro Banner -->
+      <div class="glass-card rounded-2xl p-6 sm:p-8 bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950/40 border border-emerald-500/20">
+        <div class="max-w-3xl">
+          <span class="text-xs font-extrabold uppercase tracking-widest text-emerald-400">Filosofía Elegirme</span>
+          <h2 class="text-2xl font-black text-slate-50 mt-1">Asignación Intencionada de Vida</h2>
+          <p class="text-xs text-slate-300 mt-2 leading-relaxed">
+            El patrimonio no es solo un número; es el instrumento para comprar tu libertad de elección. Define aquí las metas de vida que deseas financiar: viajes, fondo de tranquilidad, retiro anticipado o proyectos personales.
+          </p>
+        </div>
+      </div>
+
+      <!-- Goals Grid + Add Goal Form -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Add New Goal Form -->
+        <div class="lg:col-span-4 glass-card rounded-2xl p-6">
+          <h3 class="text-base font-bold text-slate-100 mb-4 flex items-center gap-2">
+            <i class="fa-solid fa-bullseye text-emerald-400"></i> Crear Nueva Meta Personal
+          </h3>
+
+          <form id="form-goal" class="space-y-4">
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Nombre de la Meta</label>
+              <input type="text" id="goal-title" placeholder="Ej: Fondo de Libertad, Año Sabático, Coche" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-emerald-500 text-slate-100">
+            </div>
+
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Monto Objetivo (€)</label>
+              <input type="number" step="0.01" id="goal-target" placeholder="Ej: 15000" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-emerald-500 text-slate-100">
+            </div>
+
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Monto Actual Asignado (€)</label>
+              <input type="number" step="0.01" id="goal-current" placeholder="Ej: 3000" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-emerald-500 text-slate-100">
+            </div>
+
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Icono / Categoría</label>
+              <select id="goal-icon" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-emerald-500 text-slate-100">
+                <option value="fa-plane">Viaje / Experiencias</option>
+                <option value="fa-shield-halved">Fondo de Libertad</option>
+                <option value="fa-house-user">Vivienda / Inmueble</option>
+                <option value="fa-car">Vehículo / Transporte</option>
+                <option value="fa-graduation-cap">Educación / Proyectos</option>
+                <option value="fa-piggy-bank">Retiro / Futuro</option>
+              </select>
+            </div>
+
+            <button type="submit" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2">
+              <i class="fa-solid fa-plus"></i> Añadir Meta a "Elegirme"
+            </button>
+          </form>
+        </div>
+
+        <!-- Goals Cards Grid -->
+        <div class="lg:col-span-8 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-base font-bold text-slate-100 flex items-center gap-2">
+              <i class="fa-solid fa-flag-checkered text-indigo-400"></i> Tus Metas Prioritarias
+            </h3>
+            <span id="goals-count" class="text-xs text-slate-400">0 metas activas</span>
+          </div>
+
+          <div id="goals-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Financial Freedom Projection Calculator -->
+      <div class="glass-card rounded-2xl p-6 sm:p-8">
+        <div class="flex items-center justify-between pb-4 border-b border-slate-800 mb-6">
+          <div>
+            <h3 class="text-base font-bold text-slate-100 flex items-center gap-2">
+              <i class="fa-solid fa-calculator text-teal-400"></i> Simulador de Proyección Futura (Interés Compuesto)
+            </h3>
+            <p class="text-xs text-slate-400 mt-0.5">Calcula la proyección de tu patrimonio a 5, 10 y 20 años según tu aportación mensual.</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+          
+          <div class="lg:col-span-4 space-y-4">
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Patrimonio Inicial para Invertir (€)</label>
+              <input type="number" id="calc-initial" value="15000" oninput="runProjection()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-emerald-500 text-slate-100">
+            </div>
+
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Aportación Mensual Estimada (€)</label>
+              <input type="number" id="calc-monthly" value="500" oninput="runProjection()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-emerald-500 text-slate-100">
+            </div>
+
+            <div>
+              <label class="block text-xs text-slate-400 mb-1">Rentabilidad Anual Esperada (%)</label>
+              <input type="number" step="0.1" id="calc-return" value="7.0" oninput="runProjection()" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-emerald-500 text-slate-100">
+            </div>
+          </div>
+
+          <div class="lg:col-span-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            
+            <div class="bg-slate-950/80 p-5 rounded-2xl border border-slate-800 text-center">
+              <span class="text-xs text-slate-400 uppercase tracking-wider font-semibold">En 5 Años</span>
+              <div id="proj-5" class="text-xl font-black text-emerald-400 mt-2">0 €</div>
+              <span class="text-[10px] text-slate-500 block mt-1">Interés acumulado</span>
+            </div>
+
+            <div class="bg-slate-950/80 p-5 rounded-2xl border border-slate-800 text-center">
+              <span class="text-xs text-slate-400 uppercase tracking-wider font-semibold">En 10 Años</span>
+              <div id="proj-10" class="text-xl font-black text-teal-300 mt-2">0 €</div>
+              <span class="text-[10px] text-slate-500 block mt-1">Interés acumulado</span>
+            </div>
+
+            <div class="bg-slate-950/80 p-5 rounded-2xl border border-slate-800 text-center">
+              <span class="text-xs text-slate-400 uppercase tracking-wider font-semibold">En 20 Años</span>
+              <div id="proj-20" class="text-xl font-black text-indigo-400 mt-2">0 €</div>
+              <span class="text-[10px] text-slate-500 block mt-1">Efecto bola de nieve</span>
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========================================== -->
+    <!-- TAB 5: AJUSTES & CATEGORÍAS                -->
+    <!-- ========================================== -->
+    <section id="tab-settings" class="tab-content hidden max-w-4xl mx-auto space-y-6">
+      
+      <!-- Management of Custom Categories -->
+      <div class="glass-card rounded-2xl p-6 sm:p-8">
+        <h2 class="text-lg font-bold text-slate-100 mb-2 flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-emerald-400"></i> Gestión de Categorías Personalizadas
+        </h2>
+        <p class="text-xs text-slate-400 mb-6">Añade o elimina las categorías que aparecen en tus cierres mensuales.</p>
+
+        <div class="space-y-4">
+          <div class="flex gap-2">
+            <input type="text" id="settings-cat-input" placeholder="Nombre de categoría (ej: Viajes, Gimnasio, Formación)..." class="flex-grow bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-emerald-500 text-slate-100">
+            <button onclick="addCategoryFromSettings()" class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold rounded-xl text-xs transition">
+              Añadir
+            </button>
+          </div>
+
+          <div id="settings-categories-list" class="flex flex-wrap gap-2 pt-3">
+            <!-- Badges injected via JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Backup and Reset Data -->
+      <div class="glass-card rounded-2xl p-6 sm:p-8 border-rose-500/20">
+        <h2 class="text-lg font-bold text-slate-100 mb-2 flex items-center gap-2">
+          <i class="fa-solid fa-database text-amber-400"></i> Copia de Seguridad y Datos
+        </h2>
+        <p class="text-xs text-slate-400 mb-6">Tus datos se guardan automáticamente de manera 100% privada en tu navegador (localStorage).</p>
+
+        <div class="flex flex-wrap gap-4">
+          <button onclick="exportJSON()" class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center gap-2 border border-slate-700">
+            <i class="fa-solid fa-download"></i> Descargar Copia JSON
+          </button>
+          <button onclick="document.getElementById('importInput').click()" class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition flex items-center gap-2 border border-slate-700">
+            <i class="fa-solid fa-upload"></i> Restaurar desde JSON
+          </button>
+          <button onclick="clearAllData()" class="px-5 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-xs font-semibold transition flex items-center gap-2 border border-rose-500/20">
+            <i class="fa-solid fa-trash-can"></i> Borrar Todo y Empezar de Cero
+          </button>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <script>
+    /* ==========================================================================
+       APP STATE MANAGEMENT
+       ========================================================================== */
+    const STORAGE_KEY = 'patrimonio_os_full_db_v2';
+
+    const defaultCategories = [
+      'Alquiler/Hipoteca',
+      'Alimentación/Súper',
+      'Ocio/Restaurantes',
+      'Suministros (Luz/Gas/Agua)',
+      'Transporte/Gasolina',
+      'Suscripciones/Servicios'
+    ];
+
+    const defaultInitialState = {
+      cash: 6000,
+      date: '2026-01',
+      equity: 15000,
+      bonds: 4000,
+      crypto: 2000,
+      realEstate: 0,
+      mortgage: 0,
+      loans: 0
+    };
+
+    const defaultMonthlyHistory = [
+      {
+        period: '2026-01',
+        cash: 6200,
+        incMain: 2500,
+        incExtra: 200,
+        incDividends: 30,
+        incOther: 0,
+        expenses: {
+          'Alquiler/Hipoteca': 800,
+          'Alimentación/Súper': 350,
+          'Ocio/Restaurantes': 250,
+          'Suministros (Luz/Gas/Agua)': 120,
+          'Transporte/Gasolina': 90,
+          'Suscripciones/Servicios': 40
+        },
+        invEquity: 15400,
+        invBonds: 4050,
+        invCrypto: 2100,
+        invLiabilities: 0
+      },
+      {
+        period: '2026-02',
+        cash: 6900,
+        incMain: 2500,
+        incExtra: 300,
+        incDividends: 0,
+        incOther: 0,
+        expenses: {
+          'Alquiler/Hipoteca': 800,
+          'Alimentación/Súper': 320,
+          'Ocio/Restaurantes': 210,
+          'Suministros (Luz/Gas/Agua)': 110,
+          'Transporte/Gasolina': 80,
+          'Suscripciones/Servicios': 40
+        },
+        invEquity: 16100,
+        invBonds: 4100,
+        invCrypto: 1950,
+        invLiabilities: 0
+      }
+    ];
+
+    const defaultGoals = [
+      { id: 1, title: 'Colchón de Libertad (1 año)', target: 20000, current: 12000, icon: 'fa-shield-halved' },
+      { id: 2, title: 'Viaje a Japón / Experiencias', target: 4000, current: 2800, icon: 'fa-plane' }
+    ];
+
+    let appData = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {
+      initialState: defaultInitialState,
+      categories: defaultCategories,
+      history: defaultMonthlyHistory,
+      goals: defaultGoals
+    };
+
+    let chartEvolutionInstance = null;
+    let chartPortfolioInstance = null;
+    let chartExpensesInstance = null;
+
+    /* ==========================================================================
+       TAB SWITCHING
+       ========================================================================== */
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+
+      // Style Desktop Nav
+      document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.remove('bg-emerald-500', 'text-slate-950', 'shadow-md');
+        btn.classList.add('text-slate-400', 'hover:text-slate-200');
+      });
+      const activeNav = document.getElementById(`nav-${tabId}`);
+      if (activeNav) {
+        activeNav.classList.add('bg-emerald-500', 'text-slate-950', 'shadow-md');
+        activeNav.classList.remove('text-slate-400');
+      }
+
+      // Style Mobile Nav
+      document.querySelectorAll('.mob-btn').forEach(btn => {
+        btn.classList.remove('text-emerald-400');
+        btn.classList.add('text-slate-400');
+      });
+      const activeMob = document.getElementById(`mob-${tabId}`);
+      if (activeMob) {
+        activeMob.classList.add('text-emerald-400');
+        activeMob.classList.remove('text-slate-400');
+      }
+
+      if (tabId === 'dashboard') renderDashboard();
+      if (tabId === 'monthly') renderMonthlyForm();
+      if (tabId === 'onboarding') populateInitialForm();
+      if (tabId === 'elegirme') { renderGoals(); runProjection(); }
+      if (tabId === 'settings') renderSettingsCategories();
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      document.getElementById('toast-message').textContent = msg;
+      toast.classList.remove('hidden');
+      setTimeout(() => toast.classList.add('hidden'), 3000);
+    }
+
+    /* ==========================================================================
+       1. VISOR GENERAL (DASHBOARD)
+       ========================================================================== */
+    function renderDashboard() {
+      const history = appData.history || [];
+      const init = appData.initialState || defaultInitialState;
+
+      let latest = null;
+      if (history.length > 0) {
+        latest = history[history.length - 1];
+      }
+
+      // Calculate Metrics
+      const cash = latest ? latest.cash : init.cash;
+      const equity = latest ? (latest.invEquity || 0) : init.equity;
+      const bonds = latest ? (latest.invBonds || 0) : init.bonds;
+      const crypto = latest ? (latest.invCrypto || 0) : init.crypto;
+      const liabilities = latest ? (latest.invLiabilities || 0) : (init.mortgage + init.loans);
+      
+      const totalInvestments = equity + bonds + crypto;
+      const totalAssets = cash + totalInvestments;
+      const netWorth = totalAssets - liabilities;
+
+      let incTotal = 0;
+      let expTotal = 0;
+      if (latest) {
+        incTotal = (latest.incMain || 0) + (latest.incExtra || 0) + (latest.incDividends || 0) + (latest.incOther || 0);
+        expTotal = Object.values(latest.expenses || {}).reduce((a, b) => a + Number(b), 0);
+      }
+
+      const savingsAmount = incTotal - expTotal;
+      const savingsRate = incTotal > 0 ? Math.round((savingsAmount / incTotal) * 100) : 0;
+      const runwayMonths = expTotal > 0 ? (cash / expTotal).toFixed(1) : '∞';
+
+      // Update Dashboard KPIs
+      document.getElementById('dash-kpi-networth').textContent = netWorth.toLocaleString('es-ES') + ' €';
+      document.getElementById('dash-kpi-cash').textContent = cash.toLocaleString('es-ES') + ' €';
+      document.getElementById('dash-kpi-runway').textContent = `Colchón: ${runwayMonths} meses`;
+      document.getElementById('dash-kpi-investments').textContent = totalInvestments.toLocaleString('es-ES') + ' €';
+      document.getElementById('dash-kpi-investments-share').textContent = `${Math.round((totalInvestments / (netWorth || 1)) * 100)}% del patrimonio`;
+      document.getElementById('dash-kpi-liabilities').textContent = liabilities.toLocaleString('es-ES') + ' €';
+      document.getElementById('dash-kpi-savings-rate').textContent = savingsRate + '%';
+      document.getElementById('dash-kpi-savings-amount').textContent = `${savingsAmount.toLocaleString('es-ES')} € ahorrados`;
+      document.getElementById('dash-kpi-freedom').textContent = `${runwayMonths} Meses`;
+
+      renderHistoryTable();
+      renderDashboardCharts(history, { equity, bonds, crypto }, latest ? latest.expenses : {});
+    }
+
+    function renderHistoryTable() {
+      const tbody = document.getElementById('dash-history-body');
+      const badge = document.getElementById('history-badge');
+      tbody.innerHTML = '';
+      badge.textContent = `${appData.history.length} Cierres`;
+
+      [...appData.history].reverse().forEach(item => {
+        const inc = (item.incMain || 0) + (item.incExtra || 0) + (item.incDividends || 0) + (item.incOther || 0);
+        const exp = Object.values(item.expenses || {}).reduce((a, b) => a + Number(b), 0);
+        const savings = inc - exp;
+        const inv = (item.invEquity || 0) + (item.invBonds || 0) + (item.invCrypto || 0);
+        const nw = item.cash + inv - (item.invLiabilities || 0);
+
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-slate-800/40 transition";
+        tr.innerHTML = `
+          <td class="py-3 px-3 font-bold text-slate-100">${item.period}</td>
+          <td class="py-3 px-3 text-emerald-400 font-medium">+${inc.toLocaleString('es-ES')} €</td>
+          <td class="py-3 px-3 text-rose-400 font-medium">-${exp.toLocaleString('es-ES')} €</td>
+          <td class="py-3 px-3 font-semibold ${savings >= 0 ? 'text-slate-200' : 'text-rose-400'}">${savings.toLocaleString('es-ES')} €</td>
+          <td class="py-3 px-3 text-indigo-300 font-medium">${inv.toLocaleString('es-ES')} €</td>
+          <td class="py-3 px-3 font-extrabold text-slate-50">${nw.toLocaleString('es-ES')} €</td>
+          <td class="py-3 px-3 text-right">
+            <button onclick="deleteHistoryRecord('${item.period}')" class="text-slate-500 hover:text-rose-400 transition p-1.5">
+              <i class="fa-solid fa-trash-can"></i>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function deleteHistoryRecord(period) {
+      if (confirm(`¿Eliminar definitivamente el registro de ${period}?`)) {
+        appData.history = appData.history.filter(h => h.period !== period);
+        saveState();
+        renderDashboard();
+        showToast(`Registro de ${period} eliminado`);
+      }
+    }
+
+    function renderDashboardCharts(history, currentMix, currentExpenses) {
+      // 1. Evolution Chart
+      const labels = history.map(h => h.period);
+      const nwData = history.map(h => {
+        const inv = (h.invEquity || 0) + (h.invBonds || 0) + (h.invCrypto || 0);
+        return h.cash + inv - (h.invLiabilities || 0);
+      });
+      const cashData = history.map(h => h.cash);
+      const invData = history.map(h => (h.invEquity || 0) + (h.invBonds || 0) + (h.invCrypto || 0));
+
+      const ctxEvol = document.getElementById('chartEvolution').getContext('2d');
+      if (chartEvolutionInstance) chartEvolutionInstance.destroy();
+
+      chartEvolutionInstance = new Chart(ctxEvol, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Patrimonio Neto',
+              data: nwData,
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+              fill: true,
+              tension: 0.3,
+              borderWidth: 2.5
+            },
+            {
+              label: 'Liquidez / Cash',
+              data: cashData,
+              borderColor: '#3b82f6',
+              borderDash: [4, 4],
+              tension: 0.3,
+              borderWidth: 1.5
+            },
+            {
+              label: 'Inversiones',
+              data: invData,
+              borderColor: '#818cf8',
+              tension: 0.3,
+              borderWidth: 1.5
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
+          scales: {
+            x: { grid: { color: 'rgba(51, 65, 85, 0.3)' }, ticks: { color: '#64748b' } },
+            y: { grid: { color: 'rgba(51, 65, 85, 0.3)' }, ticks: { color: '#64748b' } }
+          }
+        }
+      });
+
+      // 2. Portfolio Mix Chart
+      const ctxPort = document.getElementById('chartPortfolio').getContext('2d');
+      if (chartPortfolioInstance) chartPortfolioInstance.destroy();
+
+      chartPortfolioInstance = new Chart(ctxPort, {
+        type: 'pie',
+        data: {
+          labels: ['Renta Variable', 'Renta Fija', 'Cripto/Alt'],
+          datasets: [{
+            data: [currentMix.equity, currentMix.bonds, currentMix.crypto],
+            backgroundColor: ['#6366f1', '#3b82f6', '#f59e0b'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 11 } } } }
+        }
+      });
+
+      // 3. Expenses Breakout Chart
+      const expLabels = Object.keys(currentExpenses);
+      const expValues = Object.values(currentExpenses).map(Number);
+
+      const ctxExp = document.getElementById('chartExpenses').getContext('2d');
+      if (chartExpensesInstance) chartExpensesInstance.destroy();
+
+      chartExpensesInstance = new Chart(ctxExp, {
+        type: 'doughnut',
+        data: {
+          labels: expLabels.length > 0 ? expLabels : ['Sin registros'],
+          datasets: [{
+            data: expValues.length > 0 ? expValues : [1],
+            backgroundColor: ['#f43f5e', '#fb923c', '#amber-400', '#38bdf8', '#a855f7', '#ec4899', '#10b981'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 10 } } } },
+          cutout: '65%'
+        }
+      });
+    }
+
+    /* ==========================================================================
+       2. SITUACIÓN INICIAL (ONBOARDING)
+       ========================================================================== */
+    function populateInitialForm() {
+      const init = appData.initialState || defaultInitialState;
+      document.getElementById('init-cash').value = init.cash || 0;
+      document.getElementById('init-date').value = init.date || new Date().toISOString().slice(0, 7);
+      document.getElementById('init-equity').value = init.equity || 0;
+      document.getElementById('init-bonds').value = init.bonds || 0;
+      document.getElementById('init-crypto').value = init.crypto || 0;
+      document.getElementById('init-realestate').value = init.realEstate || 0;
+      document.getElementById('init-mortgage').value = init.mortgage || 0;
+      document.getElementById('init-loans').value = init.loans || 0;
+    }
+
+    document.getElementById('form-initial-state').addEventListener('submit', (e) => {
+      e.preventDefault();
+      saveInitialState();
+    });
+
+    function saveInitialState() {
+      appData.initialState = {
+        cash: parseFloat(document.getElementById('init-cash').value) || 0,
+        date: document.getElementById('init-date').value,
+        equity: parseFloat(document.getElementById('init-equity').value) || 0,
+        bonds: parseFloat(document.getElementById('init-bonds').value) || 0,
+        crypto: parseFloat(document.getElementById('init-crypto').value) || 0,
+        realEstate: parseFloat(document.getElementById('init-realestate').value) || 0,
+        mortgage: parseFloat(document.getElementById('init-mortgage').value) || 0,
+        loans: parseFloat(document.getElementById('init-loans').value) || 0
+      };
+      saveState();
+      showToast('Situación inicial guardada correctamente');
+      switchTab('dashboard');
+    }
+
+    function resetInitialForm() {
+      if (confirm('¿Restablecer el formulario de situación inicial?')) {
+        populateInitialForm();
+      }
+    }
+
+    /* ==========================================================================
+       3. REGISTRO MENSUAL CON CATEGORÍAS PERSONALIZABLES
+       ========================================================================== */
+    function renderMonthlyForm() {
+      const container = document.getElementById('expense-categories-container');
+      container.innerHTML = '';
+
+      // Default month to current
+      document.getElementById('month-period').value = new Date().toISOString().slice(0, 7);
+
+      appData.categories.forEach(cat => {
+        const div = document.createElement('div');
+        div.innerHTML = `
+          <label class="block text-xs text-slate-400 mb-1 flex justify-between items-center">
+            <span>${cat} (€)</span>
+            <button type="button" onclick="removeCategory('${cat}')" class="text-[10px] text-slate-500 hover:text-rose-400"><i class="fa-solid fa-xmark"></i></button>
+          </label>
+          <input type="number" step="0.01" data-cat="${cat}" placeholder="0" class="cat-expense-input w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-emerald-500 text-slate-100">
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function addNewCategoryFromInput() {
+      const nameInput = document.getElementById('new-cat-name');
+      const catName = nameInput.value.trim();
+      if (!catName) return;
+
+      if (!appData.categories.includes(catName)) {
+        appData.categories.push(catName);
+        saveState();
+        renderMonthlyForm();
+        nameInput.value = '';
+        showToast(`Categoría "${catName}" añadida`);
+      }
+    }
+
+    function removeCategory(catName) {
+      if (confirm(`¿Quitar la categoría "${catName}" de tus formularios?`)) {
+        appData.categories = appData.categories.filter(c => c !== catName);
+        saveState();
+        renderMonthlyForm();
+      }
+    }
+
+    document.getElementById('form-monthly-record').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const period = document.getElementById('month-period').value;
+      if (!period) return;
+
+      // Collect Expense Object
+      const expenses = {};
+      document.querySelectorAll('.cat-expense-input').forEach(input => {
+        const cat = input.getAttribute('data-cat');
+        const val = parseFloat(input.value) || 0;
+        if (val > 0) expenses[cat] = val;
+      });
+
+      const record = {
+        period,
+        cash: parseFloat(document.getElementById('month-cash').value) || 0,
+        incMain: parseFloat(document.getElementById('inc-main').value) || 0,
+        incExtra: parseFloat(document.getElementById('inc-extra').value) || 0,
+        incDividends: parseFloat(document.getElementById('inc-dividends').value) || 0,
+        incOther: parseFloat(document.getElementById('inc-other').value) || 0,
+        expenses,
+        invEquity: parseFloat(document.getElementById('inv-equity').value) || 0,
+        invBonds: parseFloat(document.getElementById('inv-bonds').value) || 0,
+        invCrypto: parseFloat(document.getElementById('inv-crypto').value) || 0,
+        invLiabilities: parseFloat(document.getElementById('inv-liabilities').value) || 0
+      };
+
+      // Upsert record
+      const idx = appData.history.findIndex(h => h.period === period);
+      if (idx >= 0) {
+        appData.history[idx] = record;
+      } else {
+        appData.history.push(record);
+      }
+
+      // Sort chronologically
+      appData.history.sort((a, b) => a.period.localeCompare(b.period));
+
+      saveState();
+      showToast(`Cierre de ${period} registrado con éxito`);
+      switchTab('dashboard');
+    });
+
+    /* ==========================================================================
+       4. ELEGIRME & METAS PERSONALES + SIMULADOR
+       ========================================================================== */
+    function renderGoals() {
+      const container = document.getElementById('goals-container');
+      const count = document.getElementById('goals-count');
+      container.innerHTML = '';
+      count.textContent = `${appData.goals.length} metas prioritarias`;
+
+      appData.goals.forEach(goal => {
+        const pct = Math.min(100, Math.round((goal.current / goal.target) * 100));
+        const div = document.createElement('div');
+        div.className = "glass-card rounded-2xl p-5 flex flex-col justify-between";
+        div.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                  <i class="fa-solid ${goal.icon} text-lg"></i>
+                </div>
+                <h4 class="font-bold text-slate-100 text-sm">${goal.title}</h4>
+              </div>
+              <button onclick="deleteGoal(${goal.id})" class="text-slate-500 hover:text-rose-400 text-xs p-1">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+
+            <div class="mt-4 flex justify-between text-xs font-semibold">
+              <span class="text-slate-400">Progreso (${pct}%)</span>
+              <span class="text-emerald-400">${goal.current.toLocaleString('es-ES')} € / ${goal.target.toLocaleString('es-ES')} €</span>
+            </div>
+
+            <div class="w-full bg-slate-950 rounded-full h-2 mt-2 overflow-hidden border border-slate-800">
+              <div class="bg-gradient-to-r from-emerald-500 to-teal-300 h-2 rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+            </div>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    document.getElementById('form-goal').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const title = document.getElementById('goal-title').value.trim();
+      const target = parseFloat(document.getElementById('goal-target').value) || 0;
+      const current = parseFloat(document.getElementById('goal-current').value) || 0;
+      const icon = document.getElementById('goal-icon').value;
+
+      if (!title || target <= 0) return;
+
+      const newGoal = { id: Date.now(), title, target, current, icon };
+      appData.goals.push(newGoal);
+      saveState();
+      renderGoals();
+      e.target.reset();
+      showToast('Nueva meta añadida');
+    });
+
+    function deleteGoal(id) {
+      if (confirm('¿Eliminar esta meta personal?')) {
+        appData.goals = appData.goals.filter(g => g.id !== id);
+        saveState();
+        renderGoals();
+      }
+    }
+
+    function runProjection() {
+      const initial = parseFloat(document.getElementById('calc-initial').value) || 0;
+      const monthly = parseFloat(document.getElementById('calc-monthly').value) || 0;
+      const rate = (parseFloat(document.getElementById('calc-return').value) || 0) / 100;
+
+      function calcFutureValue(years) {
+        let total = initial;
+        const rMonthly = rate / 12;
+        const months = years * 12;
+
+        for (let i = 0; i < months; i++) {
+          total = (total + monthly) * (1 + rMonthly);
+        }
+        return Math.round(total);
+      }
+
+      document.getElementById('proj-5').textContent = calcFutureValue(5).toLocaleString('es-ES') + ' €';
+      document.getElementById('proj-10').textContent = calcFutureValue(10).toLocaleString('es-ES') + ' €';
+      document.getElementById('proj-20').textContent = calcFutureValue(20).toLocaleString('es-ES') + ' €';
+    }
+
+    /* ==========================================================================
+       5. AJUSTES & BACKUP
+       ========================================================================== */
+    function renderSettingsCategories() {
+      const list = document.getElementById('settings-categories-list');
+      list.innerHTML = '';
+
+      appData.categories.forEach(cat => {
+        const badge = document.createElement('span');
+        badge.className = "px-3 py-1.5 bg-slate-900 text-slate-200 border border-slate-800 text-xs font-semibold rounded-xl flex items-center gap-2";
+        badge.innerHTML = `
+          ${cat}
+          <button onclick="removeCategory('${cat}'); renderSettingsCategories();" class="text-slate-500 hover:text-rose-400 text-xs"><i class="fa-solid fa-x"></i></button>
+        `;
+        list.appendChild(badge);
+      });
+    }
+
+    function addCategoryFromSettings() {
+      const input = document.getElementById('settings-cat-input');
+      const val = input.value.trim();
+      if (val && !appData.categories.includes(val)) {
+        appData.categories.push(val);
+        saveState();
+        renderSettingsCategories();
+        input.value = '';
+        showToast(`Categoría "${val}" añadida`);
+      }
+    }
+
+    function exportJSON() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(appData, null, 2));
+      const a = document.createElement('a');
+      a.setAttribute("href", dataStr);
+      a.setAttribute("download", `patrimonio_backup_${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    function importJSON(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const imported = JSON.parse(e.target.result);
+          if (imported.initialState && imported.history) {
+            appData = imported;
+            saveState();
+            switchTab('dashboard');
+            showToast('Copia de seguridad restaurada');
+          } else {
+            alert('Formato de archivo de copia no válido');
+          }
+        } catch (err) {
+          alert('Error al leer el archivo JSON');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function clearAllData() {
+      if (confirm('¿ATENCIÓN: Borrar todos los datos registrados? Esta acción no se puede deshacer.')) {
+        localStorage.removeItem(STORAGE_KEY);
+        location.reload();
+      }
+    }
+
+    // INITIALIZATION ON LOAD
+    window.onload = function() {
+      switchTab('dashboard');
+    };
+  </script>
+</body>
+</html>
