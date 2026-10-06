@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#3b3f3d"/>
+  <g fill="#7dbf8e">
+    <!-- copa -->
+    <ellipse cx="248" cy="138" rx="92" ry="40"/>
+    <ellipse cx="300" cy="118" rx="58" ry="30"/>
+    <ellipse cx="146" cy="214" rx="74" ry="32"/>
+    <ellipse cx="190" cy="198" rx="50" ry="26"/>
+    <ellipse cx="362" cy="236" rx="70" ry="30"/>
+    <ellipse cx="330" cy="222" rx="44" ry="24"/>
+    <!-- tronco y ramas -->
+    <path d="M222 384 C228 336 292 318 268 268 C252 236 286 210 258 168 L272 162 C306 210 270 236 286 268 C312 322 258 344 262 384 Z"/>
+    <path d="M262 214 C224 210 198 214 168 222 L170 232 C204 226 232 226 262 230 Z"/>
+    <path d="M284 272 C306 256 320 248 344 242 L348 252 C326 258 310 268 292 284 Z"/>
+    <!-- maceta -->
+    <rect x="136" y="380" width="240" height="18" rx="2"/>
+    <path d="M154 398 H358 L342 436 H170 Z"/>
+  </g>
+</svg>
