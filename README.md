@@ -35,6 +35,8 @@ sw.js                   Service worker: modo sin conexión
 css/styles.css          Estilos (tema claro/oscuro, gris + verde)
 js/app.js               Pantallas: Resumen, Registrar mes, Inversiones y Ajustes
 js/store.js             Almacenamiento local y cifrado con PIN
+js/cloud.js             Cuenta, cifrado de extremo a extremo y sincronización
+js/config.js            URL y clave pública de Supabase
 js/charts.js            Gráficos SVG propios (sin librerías)
 js/theme-boot.js        Aplica el tema antes de pintar
 fonts/                  Manrope + Instrument Serif (incluidas, sin llamadas externas)
@@ -43,15 +45,29 @@ icons/                  Icono del bonsái (SVG y PNG)
 
 Todas las rutas son relativas, así que funciona igual en `usuario.github.io/bonsai/` o en un dominio propio.
 
+## Cuenta y sincronización (Supabase)
+Opcional. Desde Ajustes → Cuenta puedes crear una cuenta para usar Bonsai en varios dispositivos.
+- `js/config.js` contiene la URL del proyecto de Supabase y su clave pública *anon* (es pública por diseño).
+- En Supabase sólo hay una tabla, `vaults`, con una fila por usuario y reglas (RLS) para que cada
+  cuenta sólo pueda leer y escribir la suya.
+- **Cifrado de extremo a extremo:** la contraseña nunca sale del dispositivo. De ella se derivan
+  (PBKDF2) un secreto de acceso para Supabase y, por separado, la clave que abre tu clave de datos
+  (AES‑GCM 256). Supabase sólo guarda texto cifrado.
+- **Código de recuperación:** se muestra una vez al crear la cuenta. Con él y el enlace de
+  «¿Olvidaste la contraseña?» puedes poner una contraseña nueva sin perder los datos.
+  Sin contraseña ni código, los datos no se pueden recuperar (ni siquiera desde Supabase).
+- Los cambios se suben solos y se combinan entre dispositivos (cada mes y cada activo se fusiona por
+  separado; gana el cambio más reciente). La app sigue funcionando sin conexión.
+- Si cambias de proyecto de Supabase, actualiza `js/config.js` y el dominio en la CSP de `index.html`.
+
 ## Privacidad y seguridad
-- Los datos se guardan **sólo en el navegador del dispositivo** (`localStorage`). No hay servidor ni analítica.
-  La política de seguridad de contenido (CSP) impide que la página se conecte a ningún otro sitio.
+- Sin cuenta, los datos se guardan **sólo en el navegador del dispositivo** (`localStorage`). No hay analítica.
+  La política de seguridad de contenido (CSP) sólo permite conectar con tu proyecto de Supabase.
 - Con el **PIN** activado (Ajustes → Seguridad) los datos se cifran con AES‑GCM de 256 bits; la clave se deriva
   del PIN con PBKDF2 (310.000 iteraciones). La app se bloquea tras 1 minuto en segundo plano.
   Usa 6 cifras o más: un PIN corto protege frente a alguien que coja el móvil, pero no frente a un análisis a fondo.
 - Si olvidas el PIN no hay recuperación posible: exporta copias (Ajustes → Datos) de vez en cuando.
-- Los datos son de cada dispositivo/navegador: el móvil y el ordenador no se sincronizan solos. Para pasar
-  los datos de uno a otro, exporta la copia en uno e impórtala en el otro.
+- Sin cuenta, cada dispositivo tiene sus propios datos; con cuenta, se sincronizan cifrados.
 
 ## Cómo calcula las cosas
 - **Ahorro del mes** = ingresos − gastos.

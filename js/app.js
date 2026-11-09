@@ -1,8 +1,20 @@
 // ───────────── Bonsai · aplicación ─────────────
 import * as S from './store.js';
+import * as C from './cloud.js';
 import { lineChart, barChart, donut, sparkline } from './charts.js';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
+
+// ───────────── enlaces de email (Supabase devuelve los datos en el #hash) ─────────────
+let pendingAuth = null;
+(() => {
+  const h = new URLSearchParams(location.hash.slice(1));
+  const q = new URLSearchParams(location.search);
+  if (h.get('access_token') || h.get('error') || h.get('error_description') || q.get('error_description')) {
+    pendingAuth = Object.fromEntries([...q, ...h]);
+    history.replaceState(null, '', location.pathname);
+  }
+})();
 
 // ───────────── utilidades ─────────────
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -176,6 +188,7 @@ const ICON = {
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.9-3M4 4v4h4M4 13a8 8 0 0 0 14.9 3M20 20v-4h-4"/></svg>',
+  cloud: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4.75 4.75 0 0 1-.5 9.5H7z"/><path d="M12 11v5M9.5 13.5L12 11l2.5 2.5"/></svg>',
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
 };
 const BONSAI_SVG = `<svg viewBox="0 0 512 512" aria-hidden="true"><g fill="var(--accent)"><ellipse cx="248" cy="138" rx="92" ry="40"/><ellipse cx="300" cy="118" rx="58" ry="30"/><ellipse cx="146" cy="214" rx="74" ry="32"/><ellipse cx="190" cy="198" rx="50" ry="26"/><ellipse cx="362" cy="236" rx="70" ry="30"/><ellipse cx="330" cy="222" rx="44" ry="24"/><path d="M222 384 C228 336 292 318 268 268 C252 236 286 210 258 168 L272 162 C306 210 270 236 286 268 C312 322 258 344 262 384 Z"/><path d="M262 214 C224 210 198 214 168 222 L170 232 C204 226 232 226 262 230 Z"/><path d="M284 272 C306 256 320 248 344 242 L348 252 C326 258 310 268 292 284 Z"/><rect x="136" y="380" width="240" height="18" rx="2"/><path d="M154 398 H358 L342 436 H170 Z"/></g></svg>`;
@@ -856,6 +869,9 @@ function renderSettings() {
       <span style="width:40px"></span>
     </header>
     <main>
+      <div class="section-h">Cuenta</div>
+      <div class="card" id="acctCard"></div>
+
       <div class="section-h">General</div>
       <div class="card" style="padding-top:4px;padding-bottom:4px">
         <div class="setting"><div><div class="t">Tema</div></div>
@@ -910,6 +926,7 @@ function renderSettings() {
     </main>`;
 
   $('#sBack').onclick = () => closeSettings();
+  renderAccountCard();
 
   $$('#themeSeg button', p).forEach((b) => b.onclick = () => {
     const t = b.dataset.t;
@@ -1030,7 +1047,7 @@ function renderSettings() {
     e.target.value = '';
   };
   $('#wipe').onclick = async () => {
-    if (!(await confirmSheet('Borrar todo', 'Se eliminarán todos tus meses, activos, ajustes y el PIN. Esta acción no se puede deshacer.', 'Borrar todo', true))) return;
+    if (!(await confirmSheet('Borrar todo', 'Se eliminarán de este dispositivo todos tus meses, activos, ajustes y el PIN, y se cerrará la sesión. Si tienes cuenta, lo guardado en la nube no se borra.', 'Borrar todo', true))) return;
     S.resetAll(); buildFormatters(); applyTheme(); ui.sel = null; ui.addMonth = null;
     renderSettings(); toast('Datos borrados');
   };
@@ -1057,6 +1074,254 @@ function pinSetup(isChange) {
       close(); toast(isChange ? 'PIN cambiado' : 'PIN activado'); renderSettings();
     });
   });
+}
+
+// ───────────── Cuenta y sincronización ─────────────
+const ago = (t) => {
+  if (!t) return 'nunca';
+  const s = Math.round((Date.now() - t) / 1000);
+  if (s < 45) return 'hace un momento';
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  return new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(t));
+};
+
+function syncLabel() {
+  const a = C.account();
+  if (!a) return '';
+  if (a.expired) return '<span style="color:var(--danger)">La sesión ha caducado</span>';
+  const stt = C.getStatus();
+  if (stt.state === 'syncing') return 'Sincronizando…';
+  if (stt.state === 'offline') return 'Sin conexión · se sincronizará al volver';
+  if (stt.state === 'error') return `<span style="color:var(--danger)">${esc(stt.msg)}</span>`;
+  if (a.dirty) return 'Cambios pendientes de subir';
+  return `Sincronizado ${ago(a.last)}`;
+}
+
+function updateSyncDot() {
+  const a = C.account();
+  const stt = C.getStatus();
+  const bad = a && (a.expired || stt.state === 'error');
+  $('#openSettings').classList.toggle('alert', !!bad);
+}
+
+function renderAccountCard() {
+  const el = $('#acctCard');
+  if (!el) return;
+  const a = C.account();
+  if (!a || !a.dk) {
+    el.innerHTML = `
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div class="cloud-ic">${ICON.cloud}</div>
+        <div><div class="t" style="font-weight:600">Usa Bonsai en varios dispositivos</div>
+        <p class="note" style="margin:4px 0 12px">Crea una cuenta para sincronizar tus datos entre el móvil y el ordenador. Se cifran en tu dispositivo antes de subirse: nadie más puede leerlos.</p></div>
+      </div>
+      <div class="actions"><button class="btn primary" id="aIn">Entrar</button><button class="btn" id="aUp">Crear cuenta</button></div>`;
+    $('#aIn').onclick = () => openAuth('login');
+    $('#aUp').onclick = () => openAuth('signup');
+    return;
+  }
+  el.innerHTML = `
+    <div class="setting" style="padding-top:0">
+      <div style="min-width:0"><div class="t" style="overflow:hidden;text-overflow:ellipsis">${esc(a.email)}</div><div class="d" id="syncLbl">${syncLabel()}</div></div>
+      ${a.expired ? '<button class="btn sm primary" id="aRe">Entrar</button>' : `<button class="btn sm" id="aSync" aria-label="Sincronizar ahora">${ICON.refresh}</button>`}
+    </div>
+    <div class="setting"><div><div class="t">Contraseña</div><div class="d">También es la llave de tus datos cifrados</div></div><button class="btn sm" id="aPw">Cambiar</button></div>
+    <div class="setting"><div><div class="t">Código de recuperación</div><div class="d">Para recuperar los datos si olvidas la contraseña</div></div><button class="btn sm" id="aRc">Nuevo</button></div>
+    <div class="setting" style="padding-bottom:0"><div><div class="t">Cerrar sesión</div><div class="d">Borra los datos de este dispositivo</div></div><button class="btn sm danger" id="aOut">Salir</button></div>`;
+  const sy = $('#aSync');
+  if (sy) sy.onclick = () => C.syncNow();
+  const re = $('#aRe');
+  if (re) re.onclick = () => openAuth('login', a.email);
+  $('#aPw').onclick = openChangePassword;
+  $('#aRc').onclick = openNewRecoveryCode;
+  $('#aOut').onclick = async () => {
+    if (!(await confirmSheet('Cerrar sesión', 'Se cerrará la sesión y se borrarán los datos de este dispositivo. Siguen guardados en tu cuenta: al volver a entrar los recuperarás.', 'Cerrar sesión', true))) return;
+    const ok = await C.signOut();
+    if (!ok && !(await confirmSheet('Hay cambios sin subir', 'No se han podido subir los últimos cambios (¿sin conexión?). Si sales ahora se perderán.', 'Salir igualmente', true))) return;
+    S.resetAll(); buildFormatters(); applyTheme(); ui.sel = null; ui.addMonth = null;
+    renderSettings(); toast('Sesión cerrada');
+  };
+}
+
+/** Botón con estado de carga mientras se hace algo lento (derivar claves, red…). */
+async function busy(btn, label, fn) {
+  const old = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = label;
+  try { return await fn(); } finally { btn.disabled = false; btn.innerHTML = old; }
+}
+const errBox = (body, msg) => { const e = $('.form-err', body); e.textContent = msg || ''; e.hidden = !msg; };
+
+function openAuth(mode, emailPrefill = '') {
+  const signup = mode === 'signup';
+  openSheet(signup ? 'Crear cuenta' : 'Entrar', `
+    <form id="authF" autocomplete="on">
+      <div class="field"><label for="auE">Email</label><input class="input" id="auE" type="email" autocomplete="username" required value="${esc(emailPrefill)}"></div>
+      <div class="field"><label for="auP">Contraseña</label><input class="input" id="auP" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" required></div>
+      ${signup ? '<div class="field"><label for="auP2">Repite la contraseña</label><input class="input" id="auP2" type="password" autocomplete="new-password" required></div>' : ''}
+      ${signup ? '<p class="note" style="margin:-2px 2px 14px">Mínimo 10 caracteres. Esta contraseña es también la llave que cifra tus datos: ni Supabase ni nadie más puede leerlos. Al entrar por primera vez recibirás un código de recuperación.</p>' : ''}
+      <p class="form-err" hidden></p>
+      <button class="btn primary block" type="submit">${signup ? 'Crear cuenta' : 'Entrar'}</button>
+      <div class="auth-links">
+        ${signup ? '<button type="button" class="link" id="auSw">¿Ya tienes cuenta? Entrar</button>' : '<button type="button" class="link" id="auSw">Crear una cuenta</button><button type="button" class="link" id="auFg">¿Olvidaste la contraseña?</button>'}
+      </div>
+    </form>`, (body, close) => {
+    setTimeout(() => $(emailPrefill ? '#auP' : '#auE', body).focus(), 300);
+    $('#auSw', body).onclick = () => { const e = $('#auE', body).value; close(); setTimeout(() => openAuth(signup ? 'login' : 'signup', e), 280); };
+    const fg = $('#auFg', body);
+    if (fg) fg.onclick = () => { const e = $('#auE', body).value; close(); setTimeout(() => openForgot(e), 280); };
+    $('#authF', body).addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      errBox(body, '');
+      const email = $('#auE', body).value.trim();
+      const pw = $('#auP', body).value;
+      if (signup) {
+        if (pw.length < 10) return errBox(body, 'La contraseña debe tener al menos 10 caracteres.');
+        if (pw !== $('#auP2', body).value) return errBox(body, 'Las contraseñas no coinciden.');
+      }
+      const btn = ev.submitter || $('button[type=submit]', body);
+      try {
+        const r = await busy(btn, signup ? 'Creando cuenta…' : 'Entrando…', () => (signup ? C.signUp(email, pw) : C.signIn(email, pw)));
+        close();
+        if (r && r.confirm) {
+          setTimeout(() => openInfo('Confirma tu email', `Te hemos enviado un correo a <b>${esc(email)}</b>. Ábrelo en este dispositivo, pulsa el enlace de confirmación y después entra con tu email y contraseña.<br><br><span class="muted">Si no llega en unos minutos, revisa la carpeta de spam.</span>`), 280);
+          return;
+        }
+        afterLogin(r);
+      } catch (e) {
+        errBox(body, C.esMsg(e));
+      }
+    });
+  });
+}
+
+function afterLogin(r) {
+  buildFormatters(); applyTheme(); render(); renderAccountCard(); renderSettingsIfOpen();
+  if (r && r.code) setTimeout(() => showRecoveryCode(r.code, true), 280);
+  else toast(r && r.merged ? 'Sesión iniciada · datos combinados' : 'Sesión iniciada');
+}
+
+function openInfo(title, html) {
+  openSheet(title, `<p style="margin:0 0 18px;color:var(--text-2)">${html}</p><button class="btn primary block" data-ok>Entendido</button>`,
+    (body, close) => { $('[data-ok]', body).onclick = close; });
+}
+
+function showRecoveryCode(code, first) {
+  openSheet('Código de recuperación', `
+    <p style="margin:0 0 12px;color:var(--text-2)">${first ? 'Tu cuenta está lista y tus datos ya están sincronizados. ' : ''}Guarda este código en un lugar seguro (gestor de contraseñas, papel…). <b>Es la única forma de recuperar tus datos si olvidas la contraseña.</b></p>
+    <div class="code-box" id="rcCode">${esc(code)}</div>
+    <div class="actions" style="margin:12px 0 0"><button class="btn" id="rcCopy">Copiar</button><button class="btn primary" id="rcOk">Ya lo he guardado</button></div>
+    <p class="note" style="margin:10px 2px 0">No volverá a mostrarse. Si lo pierdes, puedes generar uno nuevo desde Ajustes mientras tengas la sesión abierta.</p>`,
+  (body, close) => {
+    $('#rcCopy', body).onclick = async () => {
+      try { await navigator.clipboard.writeText(code); toast('Código copiado'); }
+      catch { const r = document.createRange(); r.selectNodeContents($('#rcCode', body)); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); toast('Selecciona y copia el código'); }
+    };
+    $('#rcOk', body).onclick = close;
+  });
+}
+
+function openForgot(emailPrefill = '') {
+  openSheet('Recuperar acceso', `
+    <form id="fgF">
+      <p style="margin:0 0 14px;color:var(--text-2)">Te enviaremos un enlace para poner una contraseña nueva. Necesitarás tu <b>código de recuperación</b> para volver a abrir tus datos.</p>
+      <div class="field"><label for="fgE">Email</label><input class="input" id="fgE" type="email" required value="${esc(emailPrefill)}"></div>
+      <p class="form-err" hidden></p>
+      <button class="btn primary block" type="submit">Enviar enlace</button>
+    </form>`, (body, close) => {
+    $('#fgF', body).addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const email = $('#fgE', body).value.trim();
+      try {
+        await busy(ev.submitter || $('button[type=submit]', body), 'Enviando…', () => C.requestReset(email));
+        close();
+        setTimeout(() => openInfo('Revisa tu correo', `Si existe una cuenta con <b>${esc(email)}</b>, te llegará un enlace. Ábrelo en este dispositivo y ten a mano tu código de recuperación.`), 280);
+      } catch (e) { errBox(body, C.esMsg(e)); }
+    });
+  });
+}
+
+function openRecovery(tokens) {
+  openSheet('Nueva contraseña', `
+    <form id="rvF" autocomplete="off">
+      <div class="field"><label for="rvC">Código de recuperación</label><input class="input mono" id="rvC" required autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX"></div>
+      <div class="field"><label for="rvP">Contraseña nueva</label><input class="input" id="rvP" type="password" autocomplete="new-password" required></div>
+      <div class="field"><label for="rvP2">Repite la contraseña</label><input class="input" id="rvP2" type="password" autocomplete="new-password" required></div>
+      <p class="form-err" hidden></p>
+      <button class="btn primary block" type="submit">Guardar y entrar</button>
+    </form>`, (body, close) => {
+    $('#rvF', body).addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const code = $('#rvC', body).value, p1 = $('#rvP', body).value;
+      if (p1.length < 10) return errBox(body, 'La contraseña debe tener al menos 10 caracteres.');
+      if (p1 !== $('#rvP2', body).value) return errBox(body, 'Las contraseñas no coinciden.');
+      try {
+        await busy(ev.submitter || $('button[type=submit]', body), 'Recuperando…', () => C.completeRecovery(tokens, code, p1));
+        close(); afterLogin({}); toast('Contraseña cambiada · datos recuperados');
+      } catch (e) { errBox(body, C.esMsg(e)); }
+    });
+  });
+}
+
+function openChangePassword() {
+  openSheet('Cambiar contraseña', `
+    <form id="cpF">
+      <div class="field"><label for="cpO">Contraseña actual</label><input class="input" id="cpO" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label for="cpN">Contraseña nueva</label><input class="input" id="cpN" type="password" autocomplete="new-password" required></div>
+      <div class="field"><label for="cpN2">Repite la contraseña nueva</label><input class="input" id="cpN2" type="password" autocomplete="new-password" required></div>
+      <p class="form-err" hidden></p>
+      <button class="btn primary block" type="submit">Cambiar contraseña</button>
+      <p class="note" style="margin:10px 2px 0">Tus otros dispositivos seguirán sincronizando; la nueva contraseña sólo se pedirá al volver a entrar.</p>
+    </form>`, (body, close) => {
+    $('#cpF', body).addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const o = $('#cpO', body).value, n = $('#cpN', body).value;
+      if (n.length < 10) return errBox(body, 'La contraseña debe tener al menos 10 caracteres.');
+      if (n !== $('#cpN2', body).value) return errBox(body, 'Las contraseñas no coinciden.');
+      try {
+        await busy(ev.submitter || $('button[type=submit]', body), 'Cambiando…', () => C.changePassword(o, n));
+        S.update(() => {}, 'Contraseña de la cuenta cambiada');
+        close(); toast('Contraseña cambiada');
+      } catch (e) { errBox(body, C.esMsg(e)); }
+    });
+  });
+}
+
+function openNewRecoveryCode() {
+  openSheet('Nuevo código', `
+    <form id="ncF">
+      <p style="margin:0 0 14px;color:var(--text-2)">El código anterior dejará de funcionar. Confirma con tu contraseña.</p>
+      <div class="field"><label for="ncP">Contraseña</label><input class="input" id="ncP" type="password" autocomplete="current-password" required></div>
+      <p class="form-err" hidden></p>
+      <button class="btn primary block" type="submit">Generar código</button>
+    </form>`, (body, close) => {
+    $('#ncF', body).addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      try {
+        const code = await busy(ev.submitter || $('button[type=submit]', body), 'Generando…', () => C.regenerateRecoveryCode($('#ncP', body).value));
+        close(); setTimeout(() => showRecoveryCode(code, false), 280);
+      } catch (e) { errBox(body, C.esMsg(e)); }
+    });
+  });
+}
+
+function renderSettingsIfOpen() {
+  if ($('#settingsPage').classList.contains('show')) renderSettings();
+}
+
+function handlePendingAuth() {
+  if (!pendingAuth) return;
+  const p = pendingAuth;
+  pendingAuth = null;
+  if (p.error || p.error_description) {
+    const expired = /expired|invalid/i.test((p.error_code || '') + (p.error_description || ''));
+    toast(expired ? 'El enlace ha caducado o ya se usó. Pide otro.' : decodeURIComponent(p.error_description || p.error).replace(/\+/g, ' '));
+    return;
+  }
+  if (p.type === 'recovery') { setTimeout(() => openRecovery(p), 400); return; }
+  // confirmación de registro u otros enlaces: ahora toca entrar con la contraseña
+  setTimeout(() => openInfo('Email confirmado', 'Tu cuenta está activada. Entra con tu email y contraseña para empezar a sincronizar.'), 400);
+  setTimeout(() => { if (!C.account()) openSettings(); }, 300);
 }
 
 // ───────────── Tema ─────────────
@@ -1113,7 +1378,7 @@ function showLock() {
     if (b.dataset.n != null) press(b.dataset.n);
     else if (b.dataset.x === 'del') { pin = pin.slice(0, -1); paint(); }
     else if (b.dataset.x === 'forgot') {
-      if (!(await confirmSheet('¿Olvidaste el PIN?', 'Sin el PIN no se pueden descifrar los datos. Puedes borrarlo todo y empezar de nuevo (o importar una copia después).', 'Borrar y empezar', true))) return;
+      if (!(await confirmSheet('¿Olvidaste el PIN?', 'Sin el PIN no se pueden descifrar los datos de este dispositivo. Puedes borrarlos y empezar de nuevo: si usas cuenta, entra otra vez y recuperarás lo guardado en la nube.', 'Borrar y empezar', true))) return;
       S.resetAll(); lock.hidden = true; lock.innerHTML = ''; startApp();
     }
   };
@@ -1127,6 +1392,7 @@ function showLock() {
 
 document.addEventListener('visibilitychange', async () => {
   if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (st() && !(S.isEncrypted() && hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS)) C.syncNow();
   if (S.isEncrypted() && st() && hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS) {
     await S.lockNow();
     // retira los datos del DOM
@@ -1154,8 +1420,19 @@ function startApp() {
       rt = setTimeout(() => { if (window.innerWidth !== lastW) { lastW = window.innerWidth; render(); } }, 150);
     });
     S.requestPersistence();
+    S.onChange(() => C.syncSoon());
+    C.onStatus(() => {
+      updateSyncDot();
+      const l = $('#syncLbl');
+      if (l) l.innerHTML = syncLabel();
+    });
+    window.addEventListener('online', () => C.syncNow());
+    setInterval(() => { if (!document.hidden) C.syncNow(); }, 5 * 60 * 1000);
   }
   showTab(ui.tab);
+  C.init({ onRemote: () => { buildFormatters(); applyTheme(); render(); renderSettingsIfOpen(); } });
+  updateSyncDot();
+  handlePendingAuth();
 }
 
 if (S.boot() === 'locked') showLock();

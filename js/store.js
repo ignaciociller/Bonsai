@@ -1,6 +1,7 @@
 // ───────────── Bonsai · almacenamiento local (opcionalmente cifrado) ─────────────
-// Los datos viven sólo en este dispositivo (localStorage). Si se activa un PIN,
+// Los datos viven en este dispositivo (localStorage). Si se activa un PIN,
 // se cifran con AES-GCM 256 usando una clave derivada del PIN (PBKDF2-SHA256).
+// `device` guarda datos propios de este dispositivo (sesión de la nube) y nunca se sincroniza ni exporta.
 
 const KEY = 'bonsai.data.v1';
 const THEME_KEY = 'bonsai.theme';
@@ -45,6 +46,9 @@ export function defaultState() {
     months: {},   // 'AAAA-MM' → { inc: {catId: n}, exp: {catId: n}, inv: {catId: n}, note, upd }
     assets: [],   // { id, name, type, hist: [{ d:'AAAA-MM-DD', v, c }] }
     log: [],      // { t, m }
+    tomb: {},     // borrados para sincronizar: 'm:AAAA-MM' | 'a:id' → marca de tiempo
+    upd: 0,       // última modificación de los datos
+    device: {},   // sólo de este dispositivo (p. ej. sesión de la nube)
   };
 }
 
@@ -163,20 +167,72 @@ export function persist() {
   return saveChain;
 }
 
-/** Aplica un cambio, registra en el historial y guarda. */
+function fingerprint(s) {
+  const strip = (o) => JSON.stringify({ ...o, upd: 0 });
+  return {
+    set: strip(s.settings),
+    m: Object.fromEntries(Object.entries(s.months).map(([k, v]) => [k, strip(v)])),
+    a: Object.fromEntries(s.assets.map((a) => [a.id, strip(a)])),
+  };
+}
+
+/** Aplica un cambio, registra en el historial y guarda. Anota qué cambió para poder sincronizar. */
 export function update(fn, logMsg) {
+  const before = fingerprint(state);
   fn(state);
+  const after = fingerprint(state);
+  const now = Date.now();
+  let changed = false;
+  if (before.set !== after.set) { state.settings.upd = now; changed = true; }
+  for (const k of Object.keys(after.m)) if (before.m[k] !== after.m[k]) { state.months[k].upd = now; changed = true; }
+  for (const k of Object.keys(before.m)) if (!(k in after.m)) { state.tomb['m:' + k] = now; changed = true; }
+  for (const a of state.assets) if (before.a[a.id] !== after.a[a.id]) { a.upd = now; changed = true; }
+  for (const id of Object.keys(before.a)) if (!(id in after.a)) { state.tomb['a:' + id] = now; changed = true; }
   if (logMsg) {
-    state.log.unshift({ t: Date.now(), m: logMsg });
+    state.log.unshift({ t: now, m: logMsg });
     if (state.log.length > 500) state.log.length = 500;
+    changed = true;
+  }
+  if (changed) {
+    state.upd = now;
+    if (state.device.cloud) state.device.cloud.dirty = true;
   }
   persist();
   listeners.forEach((l) => l(state));
 }
 
+/** Cambia datos propios del dispositivo (no cuenta como cambio a sincronizar). */
+export function updateDevice(fn) {
+  if (!state) return;
+  fn(state.device);
+  persist();
+}
+
+/** Sustituye los datos por los recibidos de la nube, conservando lo propio del dispositivo. */
+export function applyRemote(data, { dirty = false } = {}) {
+  if (!state) return;
+  const device = state.device;
+  state = migrate(JSON.parse(JSON.stringify(data)));
+  state.device = device;
+  if (dirty) state.upd = Date.now();
+  persist();
+}
+
+/** Lo que se sube a la nube (sin datos del dispositivo). */
+export function syncable(s = state) {
+  return { v: 1, settings: s.settings, months: s.months, assets: s.assets, log: s.log, tomb: s.tomb, upd: s.upd };
+}
+
 export function replaceState(next, logMsg) {
-  state = migrate(next);
-  update(() => {}, logMsg);
+  const device = state.device;
+  const incoming = migrate(next);
+  // pasa por update() para que todo cuente como cambiado (y se sincronice)
+  update((d) => {
+    d.settings = incoming.settings; d.months = incoming.months; d.assets = incoming.assets;
+    d.log = incoming.log.length ? incoming.log : d.log;
+  }, logMsg);
+  state.device = device;
+  persist();
 }
 
 export function resetAll() {
@@ -189,7 +245,7 @@ export function resetAll() {
 }
 
 export function exportJSON() {
-  return JSON.stringify({ app: 'bonsai', exported: new Date().toISOString(), data: state }, null, 2);
+  return JSON.stringify({ app: 'bonsai', exported: new Date().toISOString(), data: syncable() }, null, 2);
 }
 
 export function parseImport(text) {
@@ -220,5 +276,8 @@ function migrate(d) {
   d.months = d.months || {};
   d.assets = d.assets || [];
   d.log = d.log || [];
+  d.tomb = d.tomb || {};
+  d.upd = d.upd || 0;
+  d.device = d.device || {};
   return d;
 }
