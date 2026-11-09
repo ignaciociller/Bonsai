@@ -27,6 +27,7 @@
   --accent-soft: #dbe9de;
   --income: #3b7d4f;
   --expense: #b85c3c;
+  --invest: #3f6fae;
   --danger: #b3412f;
   --shadow: 0 1px 2px rgba(20, 25, 22, .06);
   --c1: #2a78d6; --c2: #eb6834; --c3: #1baf7a; --c4: #eda100;
@@ -56,6 +57,7 @@
     --accent-soft: #263a2c;
     --income: #79bd8a;
     --expense: #e08463;
+    --invest: #7ea6e0;
     --danger: #e3735f;
     --shadow: none;
     --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500;
@@ -76,6 +78,7 @@
   --accent-soft: #263a2c;
   --income: #79bd8a;
   --expense: #e08463;
+  --invest: #7ea6e0;
   --danger: #e3735f;
   --shadow: none;
   --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500;
@@ -420,3 +423,30 @@ select.input {
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ───────────── v1.1 · invertido y medias ───────────── */
+.kpis.four { grid-template-columns: repeat(2, 1fr); }
+.kpi .v.invc { color: var(--invest); }
+.totals .invt b { color: var(--invest); }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 12px; }
+.split .k { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.split b { display: block; font-size: 16px; }
+.split-bar { grid-column: 1 / -1; height: 6px; border-radius: 2px; background: var(--invest); overflow: hidden; }
+.split-bar span { display: block; height: 100%; background: var(--income); border-right: 2px solid var(--bg); }
+
+.avg-box { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 14px; }
+.avg-head { margin-bottom: 6px; }
+.avg-head .card-sub { margin-top: 2px; }
+.avg-row { padding: 9px 0; border-bottom: 1px solid var(--line); }
+.avg-row:last-child { border-bottom: 0; }
+.avg-top { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.avg-top .name { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.avg-top .val { font-weight: 700; white-space: nowrap; }
+.avg-top .val .muted { font-weight: 500; font-size: 12px; }
+.avg-bar { position: relative; height: 6px; background: var(--surface-2); border-radius: 2px; margin: 6px 0 0; }
+.avg-bar span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; opacity: .85; }
+.avg-bar i { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--text); transform: translateX(-1px); border-radius: 1px; }
+.avg-cmp { display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-top: 5px; }
+.cmp { font-weight: 700; font-size: 12px; }
+.cmp.up { color: var(--income); }
+.cmp.down { color: var(--expense); }

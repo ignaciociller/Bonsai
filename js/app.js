@@ -2,7 +2,7 @@
 import * as S from './store.js';
 import { lineChart, barChart, donut, sparkline } from './charts.js';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 
 // ───────────── utilidades ─────────────
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -71,11 +71,14 @@ const numInput = (n) => (n ? String(n).replace('.', ',') : '');
 // ───────────── cálculos ─────────────
 const sumObj = (o) => Object.values(o || {}).reduce((a, b) => a + (+b || 0), 0);
 function monthTotals(rec) {
-  const inc = sumObj(rec && rec.inc), exp = sumObj(rec && rec.exp);
-  return { inc, exp, net: inc - exp };
+  const inc = sumObj(rec && rec.inc), exp = sumObj(rec && rec.exp), inv = sumObj(rec && rec.inv);
+  // net = ahorro (lo que crece tu patrimonio); free = lo que queda disponible tras invertir
+  return { inc, exp, inv, net: inc - exp, free: inc - exp - inv };
 }
+const KIND_LIST = { inc: 'incomeCats', exp: 'expenseCats', inv: 'investCats' };
+const KIND_NAME = { inc: 'ingresos', exp: 'gastos', inv: 'invertido' };
 const monthKeys = () => Object.keys(st().months).sort();
-function allCats() { const s = st().settings; return [...s.incomeCats, ...s.expenseCats]; }
+function allCats() { const s = st().settings; return [...s.incomeCats, ...s.expenseCats, ...(s.investCats || [])]; }
 const catName = (id) => (allCats().find((c) => c.id === id) || {}).name || 'Sin categoría';
 
 function cumulativeNetUntil(key) {
@@ -83,6 +86,12 @@ function cumulativeNetUntil(key) {
   for (const [k, rec] of Object.entries(st().months)) if (k <= key) t += monthTotals(rec).net;
   return t;
 }
+function cumulativeInvUntil(key) {
+  let t = 0;
+  for (const [k, rec] of Object.entries(st().months)) if (k <= key) t += monthTotals(rec).inv;
+  return t;
+}
+const hasInvestData = () => Object.values(st().months).some((r) => sumObj(r.inv) > 0) || (+st().settings.initialInvested || 0) > 0;
 function entryAt(asset, iso) {
   let e = null;
   for (const h of asset.hist) { if (h.d <= iso) e = h; else break; }
@@ -214,13 +223,14 @@ function yearsWithData() {
   return ys;
 }
 function aggregate(months) {
-  const res = { inc: 0, exp: 0, incBy: {}, expBy: {}, count: 0 };
+  const res = { inc: 0, exp: 0, inv: 0, incBy: {}, expBy: {}, invBy: {}, count: 0 };
   for (const k of months) {
     const r = st().months[k];
     if (!r) continue;
     res.count++;
     for (const [id, v] of Object.entries(r.inc || {})) { res.inc += v; res.incBy[id] = (res.incBy[id] || 0) + v; }
     for (const [id, v] of Object.entries(r.exp || {})) { res.exp += v; res.expBy[id] = (res.expBy[id] || 0) + v; }
+    for (const [id, v] of Object.entries(r.inv || {})) { res.inv += v; res.invBy[id] = (res.invBy[id] || 0) + v; }
   }
   return res;
 }
@@ -265,6 +275,10 @@ function renderCharts() {
   });
   const ytdDelta = nw - yStart;
   const investGain = investAt(todayISO()).gain;
+  const showInv = hasInvestData();
+  if (!showInv && ui.dist === 'inv') ui.dist = 'exp';
+  const invested = (+s.settings.initialInvested || 0) + cumulativeInvUntil('9999-12') + investGain;
+  const available = nw - invested;
 
   const selP = periods[ui.sel];
   const a = aggs[ui.sel];
@@ -282,6 +296,11 @@ function renderCharts() {
       <div class="hero-value">${money0(nw)}</div>
       <div class="delta ${ytdDelta >= 0 ? 'up' : 'down'}">${signed(ytdDelta, money0)} <span class="muted">en lo que va de ${thisYear}</span></div>
       ${s.assets.length ? `<div class="note" style="margin:4px 0 0">Incluye ${signed(investGain, money0)} de rentabilidad de inversiones</div>` : ''}
+      ${showInv ? `<div class="split">
+        <div><span class="k"><i class="swatch" style="background:var(--income)"></i>Disponible</span><b>${money0(available)}</b></div>
+        <div><span class="k"><i class="swatch" style="background:var(--invest)"></i>Invertido</span><b>${money0(invested)}</b></div>
+        <div class="split-bar"><span style="width:${nw > 0 ? Math.max(0, Math.min(100, (available / nw) * 100)) : 0}%"></span></div>
+      </div>` : ''}
     </div>
 
     <div class="filters">
@@ -297,27 +316,30 @@ function renderCharts() {
     </div>
 
     <div class="card">
-      <div class="card-head"><h3 class="card-title">Ingresos y gastos</h3>
-        <div class="legend"><span><i class="swatch" style="background:var(--income)"></i>Ingresos</span><span><i class="swatch" style="background:var(--expense)"></i>Gastos</span></div></div>
+      <div class="card-head"><h3 class="card-title">${showInv ? 'Movimientos' : 'Ingresos y gastos'}</h3>
+        <div class="legend"><span><i class="swatch" style="background:var(--income)"></i>Ingresos</span><span><i class="swatch" style="background:var(--expense)"></i>Gastos</span>${showInv ? '<span><i class="swatch" style="background:var(--invest)"></i>Invertido</span>' : ''}</div></div>
       <div class="chart" id="barChart"></div>
       <p class="note" style="margin-top:2px">Toca una barra para ver ese periodo.</p>
     </div>
 
     <div class="card">
       <div class="card-head"><h3 class="card-title">${esc(selP.tip)}</h3>${a.count ? `<span class="card-sub">${a.count} ${a.count === 1 ? 'mes' : 'meses'}</span>` : '<span class="badge neutral">Sin registrar</span>'}</div>
-      <div class="kpis">
+      <div class="kpis ${showInv ? 'four' : ''}">
         <div class="kpi"><div class="k">Ingresos</div><div class="v inc">${money0(a.inc)}</div></div>
         <div class="kpi"><div class="k">Gastos</div><div class="v exp">${money0(a.exp)}</div></div>
+        ${showInv ? `<div class="kpi"><div class="k">Invertido</div><div class="v invc">${money0(a.inv)}</div></div>` : ''}
         <div class="kpi"><div class="k">Ahorro</div><div class="v">${signed(net, money0)}</div></div>
       </div>
+      ${showInv && a.inv > 0 ? `<p class="note" style="margin:10px 0 0">Te quedan ${signed(net - a.inv, money0)} disponibles después de invertir.</p>` : ''}
       <div class="rate"><div class="rate-row"><span>Tasa de ahorro</span><b style="color:var(--text)">${a.inc > 0 ? Math.round((net / a.inc) * 100) + ' %' : '—'}</b></div>
         <div class="rate-bar"><span style="width:${rate}%"></span></div></div>
     </div>
 
     <div class="card">
       <div class="card-head"><h3 class="card-title">Distribución</h3>
-        <div class="seg small" id="distSeg"><button data-d="exp" aria-pressed="${ui.dist === 'exp'}">Gastos</button><button data-d="inc" aria-pressed="${ui.dist === 'inc'}">Ingresos</button></div></div>
+        <div class="seg small" id="distSeg"><button data-d="exp" aria-pressed="${ui.dist === 'exp'}">Gastos</button><button data-d="inc" aria-pressed="${ui.dist === 'inc'}">Ingresos</button>${showInv ? `<button data-d="inv" aria-pressed="${ui.dist === 'inv'}">Invertido</button>` : ''}</div></div>
       <div id="dist"></div>
+      <div id="avg"></div>
     </div>
 
     <div class="card">
@@ -342,18 +364,19 @@ function renderCharts() {
     series: [
       { name: 'Ingresos', color: 'var(--income)', values: aggs.map((x) => x.inc) },
       { name: 'Gastos', color: 'var(--expense)', values: aggs.map((x) => x.exp) },
+      ...(showInv ? [{ name: 'Invertido', color: 'var(--invest)', values: aggs.map((x) => x.inv) }] : []),
     ],
     selected: ui.sel, fmt: money0, fmtAxis: moneyC,
     onSelect: (i) => { ui.sel = i; renderCharts(); },
   });
 
   // distribución
-  const by = ui.dist === 'exp' ? a.expBy : a.incBy;
-  const total = ui.dist === 'exp' ? a.exp : a.inc;
+  const by = a[ui.dist + 'By'];
+  const total = a[ui.dist];
   const dist = $('#dist');
   const items = Object.entries(by).filter(([, val]) => val > 0).map(([id, val]) => ({ id, label: catName(id), value: val })).sort((x, y) => y.value - x.value);
   if (!items.length) {
-    dist.innerHTML = `<p class="muted" style="font-size:13px;margin:6px 0">No hay ${ui.dist === 'exp' ? 'gastos' : 'ingresos'} registrados en este periodo.</p>`;
+    dist.innerHTML = `<p class="muted" style="font-size:13px;margin:6px 0">No hay ${ui.dist === 'inv' ? 'inversiones' : KIND_NAME[ui.dist]} registrados en este periodo.</p>`;
   } else {
     let shown = items.slice(0, 7);
     if (items.length > 7) shown.push({ id: '_otros', label: 'Resto', value: items.slice(7).reduce((x, y) => x + y.value, 0) });
@@ -363,8 +386,9 @@ function renderCharts() {
       <li class="row" style="padding:7px 0"><i class="swatch" style="background:${it.color}"></i>
         <div class="grow"><div class="title" style="font-weight:500;font-size:14px">${esc(it.label)}</div>${perMonth ? `<div class="sub">${money0(it.value / a.count)}/mes</div>` : ''}</div>
         <div style="text-align:right"><div class="amt" style="font-size:14px">${money0(it.value)}</div><div class="sub">${Math.round((it.value / total) * 100)} %</div></div></li>`).join('')}</ul></div>`;
-    donut($('#donut'), shown, moneyC(total), ui.dist === 'exp' ? 'gastos' : 'ingresos');
+    donut($('#donut'), shown, moneyC(total), KIND_NAME[ui.dist]);
   }
+  renderAverages($('#avg'), a);
 
   // lista de meses del año
   const ml = $('#monthList');
@@ -372,10 +396,48 @@ function renderCharts() {
   ml.innerHTML = ks.length ? ks.map((k) => {
     const t = monthTotals(s.months[k]);
     return `<li class="row tap" data-k="${k}"><div class="grow"><div class="title">${monthLabel(k)}</div>
-      <div class="sub">Ingresos ${money0(t.inc)} · Gastos ${money0(t.exp)}</div></div>
+      <div class="sub">Ingresos ${money0(t.inc)} · Gastos ${money0(t.exp)}${t.inv ? ` · Invertido ${money0(t.inv)}` : ''}</div></div>
       <div class="amt" style="color:${t.net >= 0 ? 'var(--income)' : 'var(--expense)'}">${signed(t.net, money0)}</div>${ICON.chev}</li>`;
   }).join('') : `<li class="row"><span class="muted" style="font-size:13px">Aún no hay meses registrados este año.</span></li>`;
   $$('.row[data-k]', ml).forEach((r) => r.onclick = () => { ui.addMonth = r.dataset.k; showTab('add'); });
+}
+
+/** Media mensual por categoría teniendo en cuenta todos los meses registrados. */
+function renderAverages(el, periodAgg) {
+  const kind = ui.dist;
+  const all = aggregate(monthKeys());
+  if (!all.count) { el.innerHTML = ''; return; }
+  const by = all[kind + 'By'];
+  const rows = Object.entries(by).filter(([, v]) => v > 0)
+    .map(([id, v]) => ({ id, name: catName(id), avg: v / all.count }))
+    .sort((x, y) => y.avg - x.avg);
+  if (!rows.length) { el.innerHTML = ''; return; }
+  const max = rows[0].avg;
+  const totalAvg = all[kind] / all.count;
+  // comparación con el periodo seleccionado (por mes)
+  const cmp = periodAgg.count ? (id) => (periodAgg[kind + 'By'][id] || 0) / periodAgg.count : null;
+  const color = kind === 'exp' ? 'var(--expense)' : kind === 'inv' ? 'var(--invest)' : 'var(--income)';
+  const badIsUp = kind === 'exp';
+  const chip = (cur, avg) => {
+    if (!avg) return '';
+    const d = ((cur - avg) / avg) * 100;
+    if (Math.abs(d) < 1) return '<span class="cmp muted">= media</span>';
+    const worse = badIsUp ? d > 0 : d < 0;
+    return `<span class="cmp ${worse ? 'down' : 'up'}">${d > 0 ? '▲' : '▼'} ${Math.round(Math.abs(d))} %</span>`;
+  };
+  el.innerHTML = `<div class="avg-box">
+    <div class="avg-head"><div><div class="card-title">Media mensual por categoría</div>
+      <div class="card-sub">Todos los meses registrados (${all.count}) · ${money0(totalAvg)}/mes en total</div></div></div>
+    <ul class="list">${rows.map((r) => {
+      const cur = cmp ? cmp(r.id) : null;
+      return `<li class="avg-row">
+        <div class="avg-top"><span class="name">${esc(r.name)}</span><span class="val">${money0(r.avg)}<span class="muted">/mes</span></span></div>
+        <div class="avg-bar"><span style="width:${(r.avg / max) * 100}%;background:${color}"></span>${cur != null ? `<i style="left:${Math.min(100, (cur / max) * 100)}%" title="Periodo seleccionado"></i>` : ''}</div>
+        ${cur != null ? `<div class="avg-cmp"><span class="muted">${esc(ui.gran === 'M' ? 'Este mes' : 'Este periodo')}: ${money0(cur)}${periodAgg.count > 1 ? '/mes' : ''}</span>${chip(cur, r.avg)}</div>` : ''}
+      </li>`;
+    }).join('')}</ul>
+    ${cmp ? '<p class="note" style="margin:8px 0 0">La marca vertical indica el periodo seleccionado frente a la media.</p>' : ''}
+  </div>`;
 }
 
 // ───────────── Pestaña: Registrar mes ─────────────
@@ -397,7 +459,7 @@ function renderAdd() {
     return cat.def > 0 ? cat.def : undefined;
   };
   const catsFor = (kind) => {
-    const list = kind === 'inc' ? s.settings.incomeCats : s.settings.expenseCats;
+    const list = s.settings[KIND_LIST[kind]] || [];
     return list.filter((c) => !c.archived || (rec && (rec[kind] || {})[c.id]));
   };
   const rows = (kind) => catsFor(kind).map((c) => {
@@ -425,11 +487,17 @@ function renderAdd() {
         ${rows('exp') || '<p class="muted" style="font-size:13px">Añade categorías de gasto en Ajustes.</p>'}
       </div>
       <div class="card">
+        <div class="card-head"><h3 class="card-title">Invertido</h3><span class="card-sub">no cuenta como gasto</span></div>
+        ${rows('inv') || '<p class="muted" style="font-size:13px">Añade etiquetas de inversión en Ajustes.</p>'}
+        <p class="note" style="margin:8px 0 0">Dinero que apartas (fondos, plan de pensiones…): sigue siendo tu patrimonio pero ya no está disponible.</p>
+      </div>
+      <div class="card">
         <div class="field" style="margin:0"><label for="fNote">Nota (opcional)</label>
         <textarea class="input" id="fNote" rows="2" placeholder="Algo a recordar de este mes">${esc(rec ? rec.note || '' : '')}</textarea></div>
       </div>
       <div class="sticky-total">
-        <div class="totals"><div class="inc">Ingresos<b id="tInc">0</b></div><div class="exp">Gastos<b id="tExp">0</b></div><div style="text-align:right">Ahorro<b id="tNet">0</b></div></div>
+        <div class="totals"><div class="inc">Ingresos<b id="tInc">0</b></div><div class="exp">Gastos<b id="tExp">0</b></div><div class="invt">Invertido<b id="tInv">0</b></div><div style="text-align:right">Ahorro<b id="tNet">0</b></div></div>
+        <div class="note" id="tFree" style="margin:-4px 0 0"></div>
         <button class="btn primary block" type="submit">${rec ? 'Guardar cambios' : 'Integrar en el mes'}</button>
       </div>
       ${rec ? `<button type="button" class="btn ghost danger block" id="delMonth" style="margin-top:10px">${ICON.trash} Eliminar este mes</button>` : ''}
@@ -437,7 +505,7 @@ function renderAdd() {
 
   const form = $('#monthForm');
   const readForm = () => {
-    const out = { inc: {}, exp: {}, bad: [] };
+    const out = { inc: {}, exp: {}, inv: {}, bad: [] };
     $$('input[data-kind]', form).forEach((i) => {
       const n = parseAmount(i.value);
       if (n === null) return;
@@ -448,7 +516,9 @@ function renderAdd() {
   };
   const updateTotals = () => {
     const f = readForm();
-    const inc = sumObj(f.inc), exp = sumObj(f.exp);
+    const inc = sumObj(f.inc), exp = sumObj(f.exp), inv = sumObj(f.inv);
+    $('#tInv').textContent = money0(inv);
+    $('#tFree').textContent = inv > 0 ? `Disponible tras invertir: ${signed(inc - exp - inv, money0)}` : '';
     $('#tInc').textContent = money0(inc);
     $('#tExp').textContent = money0(exp);
     $('#tNet').textContent = signed(inc - exp, money0);
@@ -471,12 +541,12 @@ function renderAdd() {
     e.preventDefault();
     const f = readForm();
     if (f.bad.length) { f.bad[0].focus(); toast('Revisa el importe marcado'); return; }
-    if (!Object.keys(f.inc).length && !Object.keys(f.exp).length) { toast('Introduce al menos un importe'); return; }
+    if (!Object.keys(f.inc).length && !Object.keys(f.exp).length && !Object.keys(f.inv).length) { toast('Introduce al menos un importe'); return; }
     const existed = !!st().months[key];
     const note = $('#fNote').value.trim();
-    const t = { inc: sumObj(f.inc), exp: sumObj(f.exp) };
-    S.update((d) => { d.months[key] = { inc: f.inc, exp: f.exp, note, upd: Date.now() }; },
-      `${existed ? 'Modificado' : 'Integrado'} ${monthLabel(key).toLowerCase()} · ingresos ${money0(t.inc)}, gastos ${money0(t.exp)}`);
+    const t = { inc: sumObj(f.inc), exp: sumObj(f.exp), inv: sumObj(f.inv) };
+    S.update((d) => { d.months[key] = { inc: f.inc, exp: f.exp, inv: f.inv, note, upd: Date.now() }; },
+      `${existed ? 'Modificado' : 'Integrado'} ${monthLabel(key).toLowerCase()} · ingresos ${money0(t.inc)}, gastos ${money0(t.exp)}${t.inv ? `, invertido ${money0(t.inv)}` : ''}`);
     toast(existed ? 'Cambios guardados' : 'Mes integrado');
     const { y, m } = parseMK(key);
     ui.year = y; ui.gran = 'M'; ui.sel = m - 1;
@@ -763,7 +833,7 @@ window.addEventListener('popstate', () => { if ($('#settingsPage').classList.con
 
 function catRows(kind) {
   const s = st().settings;
-  const list = (kind === 'inc' ? s.incomeCats : s.expenseCats).filter((c) => !c.archived);
+  const list = (s[KIND_LIST[kind]] || []).filter((c) => !c.archived);
   const sym = curSymbol();
   return list.map((c) => `<div class="cat-row" data-id="${c.id}">
     <div class="name"><input value="${esc(c.name)}" maxlength="40" data-f="name" aria-label="Nombre"></div>
@@ -796,6 +866,8 @@ function renderSettings() {
           <div class="field" style="margin:0"><label for="initBal">Patrimonio inicial</label>
           <input class="input" id="initBal" inputmode="decimal" value="${esc(numInput(s.initialBalance))}" placeholder="0"></div>
           <p class="note" style="margin:6px 0 0">Lo que tenías al empezar a usar Bonsai (cuentas + inversiones). Cada mes se le suma el ahorro y la rentabilidad de tus inversiones.</p>
+          <div class="field" style="margin:12px 0 0"><label for="initInv">De lo cual, ya invertido</label>
+          <input class="input" id="initInv" inputmode="decimal" value="${esc(numInput(s.initialInvested))}" placeholder="0"></div>
         </div>
       </div>
 
@@ -808,6 +880,11 @@ function renderSettings() {
       <div class="card" style="padding-top:4px;padding-bottom:4px" id="expCats">${catRows('exp')}</div>
       <button class="btn sm" data-add="exp">${ICON.plus} Nueva etiqueta de gasto</button>
       <p class="note">Pon un importe sólo en gastos fijos (alquiler, suscripciones…) para que aparezcan ya rellenos.</p>
+
+      <div class="section-h">Etiquetas de inversión</div>
+      <div class="card" style="padding-top:4px;padding-bottom:4px" id="invCats">${catRows('inv')}</div>
+      <button class="btn sm" data-add="inv">${ICON.plus} Nueva etiqueta de inversión</button>
+      <p class="note">Lo invertido no es gasto ni ingreso: sigue en tu patrimonio, pero deja de estar disponible. Si haces una aportación fija cada mes, ponle importe.</p>
 
       <div class="section-h">Seguridad</div>
       <div class="card" style="padding-top:4px;padding-bottom:4px">
@@ -850,11 +927,17 @@ function renderSettings() {
     S.update((d) => { d.settings.initialBalance = n || 0; }, `Patrimonio inicial: ${money(n || 0)}`);
     toast('Guardado');
   };
+  $('#initInv').onchange = (e) => {
+    const n = parseAmount(e.target.value);
+    if (Number.isNaN(n) || n < 0) { toast('Importe no válido'); return; }
+    S.update((d) => { d.settings.initialInvested = n || 0; }, `Invertido inicial: ${money(n || 0)}`);
+    toast('Guardado');
+  };
 
   // categorías
   const bindCats = (kind, boxId) => {
     const box = $('#' + boxId, p);
-    const listKey = kind === 'inc' ? 'incomeCats' : 'expenseCats';
+    const listKey = KIND_LIST[kind];
     box.addEventListener('change', (e) => {
       const row = e.target.closest('.cat-row'); if (!row) return;
       const id = row.dataset.id;
@@ -889,12 +972,13 @@ function renderSettings() {
   };
   bindCats('inc', 'incCats');
   bindCats('exp', 'expCats');
+  bindCats('inv', 'invCats');
   $$('[data-add]', p).forEach((b) => b.onclick = () => {
     const kind = b.dataset.add;
-    const listKey = kind === 'inc' ? 'incomeCats' : 'expenseCats';
-    openSheet(kind === 'inc' ? 'Nuevo ingreso' : 'Nuevo gasto', `
+    const listKey = KIND_LIST[kind];
+    openSheet({ inc: 'Nuevo ingreso', exp: 'Nuevo gasto', inv: 'Nueva inversión' }[kind], `
       <form id="nc" autocomplete="off">
-        <div class="field"><label for="ncName">Nombre</label><input class="input" id="ncName" maxlength="40" required placeholder="${kind === 'inc' ? 'p. ej. Alquiler cobrado' : 'p. ej. Gimnasio'}"></div>
+        <div class="field"><label for="ncName">Nombre</label><input class="input" id="ncName" maxlength="40" required placeholder="${{ inc: 'p. ej. Alquiler cobrado', exp: 'p. ej. Gimnasio', inv: 'p. ej. Fondo indexado' }[kind]}"></div>
         <div class="field"><label for="ncDef">Importe por defecto (opcional)</label><input class="input" id="ncDef" inputmode="decimal" placeholder="—"></div>
         <button class="btn primary block" type="submit">Añadir</button>
       </form>`, (body, close) => {
@@ -905,7 +989,7 @@ function renderSettings() {
         const def = parseAmount($('#ncDef', body).value);
         if (!name) return;
         if (Number.isNaN(def) || def < 0) { toast('Importe no válido'); return; }
-        S.update((d) => { d.settings[listKey].push({ id: S.uid(), name, def: def || 0 }); }, `Nueva etiqueta de ${kind === 'inc' ? 'ingreso' : 'gasto'}: ${name}`);
+        S.update((d) => { d.settings[listKey].push({ id: S.uid(), name, def: def || 0 }); }, `Nueva etiqueta de ${{ inc: 'ingreso', exp: 'gasto', inv: 'inversión' }[kind]}: ${name}`);
         close(); renderSettings();
       });
     });

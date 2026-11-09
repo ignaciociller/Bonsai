@@ -55,6 +55,11 @@ Todas las rutas son relativas, así que funciona igual en `usuario.github.io/bon
 
 ## Cómo calcula las cosas
 - **Ahorro del mes** = ingresos − gastos.
+- **Invertido**: dinero que apartas cada mes (fondos, plan de pensiones…). No es gasto ni ingreso: sigue
+  en tu patrimonio, pero deja de estar disponible. Patrimonio = **Disponible + Invertido**.
+  En Ajustes puedes indicar cuánto de tu patrimonio inicial ya estaba invertido.
+- **Media mensual por categoría**: total de cada categoría entre el número de meses registrados, comparado
+  con el periodo que tengas seleccionado.
 - **Patrimonio** = patrimonio inicial + ahorro acumulado de todos los meses + ganancia de las inversiones
   (valor − aportado). Las aportaciones a inversiones no se apuntan como gasto: es dinero que ya forma parte del ahorro.
 - **Rendimiento de inversiones** por periodo (1S, 1M, 3M, 1A, Todo) sin contar nuevas aportaciones.

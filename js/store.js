@@ -17,11 +17,17 @@ export function defaultState() {
       currency: 'EUR',
       theme: 'system',
       initialBalance: 0,
+      initialInvested: 0,
       startMonth: start,
       incomeCats: [
         { id: uid(), name: 'Nómina', def: 0 },
         { id: uid(), name: 'Extra / freelance', def: 0 },
         { id: uid(), name: 'Otros ingresos', def: 0 },
+      ],
+      investCats: [
+        { id: uid(), name: 'Fondos indexados', def: 0 },
+        { id: uid(), name: 'Plan de pensiones', def: 0 },
+        { id: uid(), name: 'Otras inversiones', def: 0 },
       ],
       expenseCats: [
         { id: uid(), name: 'Alquiler', def: 0 },
@@ -36,7 +42,7 @@ export function defaultState() {
         { id: uid(), name: 'Otros', def: 0 },
       ],
     },
-    months: {},   // 'AAAA-MM' → { inc: {catId: n}, exp: {catId: n}, note, upd }
+    months: {},   // 'AAAA-MM' → { inc: {catId: n}, exp: {catId: n}, inv: {catId: n}, note, upd }
     assets: [],   // { id, name, type, hist: [{ d:'AAAA-MM-DD', v, c }] }
     log: [],      // { t, m }
   };
@@ -101,7 +107,7 @@ export function boot() {
   const raw = readRaw();
   if (raw && raw.enc) return 'locked';
   state = raw && raw.data ? migrate(raw.data) : defaultState();
-  if (!raw) persist();
+  persist();   // guarda también las migraciones (p. ej. etiquetas de inversión nuevas)
   return 'ready';
 }
 
@@ -118,6 +124,7 @@ export async function unlock(pin) {
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(raw.iv) }, key, unb64(raw.ct));
     cryptoKey = key;
     state = migrate(JSON.parse(dec.decode(pt)));
+    persist();
     return true;
   } catch {
     cryptoKey = null;
