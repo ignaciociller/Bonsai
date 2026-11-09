@@ -3,7 +3,7 @@ import * as S from './store.js';
 import * as C from './cloud.js';
 import { lineChart, barChart, donut, sparkline } from './charts.js';
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 
 // ───────────── enlaces de email (Supabase devuelve los datos en el #hash) ─────────────
 let pendingAuth = null;
@@ -188,6 +188,7 @@ const ICON = {
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.9-3M4 4v4h4M4 13a8 8 0 0 0 14.9 3M20 20v-4h-4"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
   cloud: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4.75 4.75 0 0 1-.5 9.5H7z"/><path d="M12 11v5M9.5 13.5L12 11l2.5 2.5"/></svg>',
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
 };
@@ -467,8 +468,10 @@ function renderAdd() {
   const rec = s.months[key];
   const sym = curSymbol();
 
+  const planned = rec ? {} : plannedInvest(key);
   const valFor = (kind, cat) => {
     if (rec) return (rec[kind] || {})[cat.id];
+    if (kind === 'inv' && planned[cat.id] > 0) return r2(planned[cat.id]);
     return cat.def > 0 ? cat.def : undefined;
   };
   const catsFor = (kind) => {
@@ -579,6 +582,29 @@ function renderAdd() {
 // ───────────── Pestaña: Inversiones ─────────────
 const ASSET_TYPES = ['Fondo indexado', 'Fondo de inversión', 'ETF', 'Acción', 'Cripto', 'Plan de pensiones', 'Depósito', 'Cuenta remunerada', 'Otro'];
 const RANGES = [['1S', 7], ['1M', 30], ['3M', 91], ['1A', 365], ['Todo', null]];
+const EVERY = {
+  week: { label: 'Cada semana', short: 'semana', days: 7 },
+  month: { label: 'Cada mes', short: 'mes', days: 31 },
+  quarter: { label: 'Cada trimestre', short: 'trimestre', days: 92 },
+  year: { label: 'Cada año', short: 'año', days: 366 },
+};
+const YTYPE = { EQUITY: 'Acción', ETF: 'ETF', MUTUALFUND: 'Fondo', CRYPTOCURRENCY: 'Cripto' };
+const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 864e5);
+const isLinked = (a) => !!(a && a.src && a.src.sym);
+const r2 = (n) => Math.round(n * 100) / 100;
+const units = (n) => (n || 0).toLocaleString('es-ES', { maximumFractionDigits: 4 });
+const ageText = (days) => (days <= 0 ? 'hoy' : days === 1 ? 'ayer' : `hace ${days} días`);
+
+/** Siguiente fecha de una aportación periódica (mantiene el día del mes elegido). */
+function nextDate(iso, every, anchor) {
+  if (every === 'week') return addDays(iso, 7);
+  const n = every === 'quarter' ? 3 : every === 'year' ? 12 : 1;
+  const d = new Date(iso + 'T12:00:00');
+  const y = d.getFullYear(), m = d.getMonth() + n;
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  const nd = new Date(y, m, Math.min(anchor || d.getDate(), lastDay), 12);
+  return `${nd.getFullYear()}-${pad2(nd.getMonth() + 1)}-${pad2(nd.getDate())}`;
+}
 
 function rangeStartISO() {
   const r = RANGES.find(([k]) => k === ui.range);
@@ -589,7 +615,6 @@ function rangeStartISO() {
   return addDays(todayISO(), -r[1]);
 }
 function assetValueAt(a, iso) { const e = entryAt(a, iso); return e ? e.v : 0; }
-function assetGainAt(a, iso) { const e = entryAt(a, iso); return e ? e.v - e.c : 0; }
 
 /** Rendimiento entre dos fechas, excluyendo aportaciones. */
 function perf(assets, fromISO, toISO) {
@@ -603,15 +628,149 @@ function perf(assets, fromISO, toISO) {
   const basis = v0 + (c1 - c0) || c1 || 1;
   return { diff, pct: (diff / basis) * 100 };
 }
+/** Rendimiento del último mes de un activo (null si es más reciente que un mes). */
+function monthPerf(a) {
+  const from = addDays(todayISO(), -30);
+  if (!entryAt(a, from)) return null;
+  return perf([a], from, todayISO());
+}
+/** Rentabilidad sobre lo invertido. */
+function totalPerf(list) {
+  let v = 0, c = 0;
+  for (const a of list) { const e = entryAt(a, todayISO()) || a.hist[a.hist.length - 1]; if (e) { v += e.v; c += e.c; } }
+  return { diff: v - c, pct: c > 0 ? ((v - c) / c) * 100 : null };
+}
+const pctSpan = (p, prefix = '') => (p == null || p.pct == null
+  ? `<span class="pct muted">${prefix}—</span>`
+  : `<span class="pct ${p.diff >= 0 ? 'up' : 'down'}">${prefix}${pct(p.pct)}</span>`);
+
+// ── aportaciones periódicas
+function applyContribution(x, date, amt) {
+  sortHist(x);
+  const prev = entryAt(x, date) || x.hist[0];
+  const c = r2((prev ? prev.c : 0) + amt);
+  let v;
+  if (isLinked(x) && x.px && x.px.p > 0) { x.units = (x.units || 0) + amt / x.px.p; v = r2(x.units * x.px.p); }
+  else v = r2((prev ? prev.v : 0) + amt);
+  const same = x.hist.find((h) => h.d === date);
+  if (same) { same.v = isLinked(x) ? v : r2(same.v + amt); same.c = r2(same.c + amt); same.plan = 1; }
+  else x.hist.push({ d: date, v, c, plan: 1 });
+  for (const h of x.hist) if (h.d > date) { h.c = r2(h.c + amt); if (!isLinked(x)) h.v = r2(h.v + amt); }
+  sortHist(x);
+}
+
+function processPlans() {
+  const s = st();
+  if (!s) return;
+  const today = todayISO();
+  let n = 0, total = 0;
+  for (const a of s.assets) {
+    const p = a.plan;
+    if (!p || !p.next) continue;
+    let d = p.next, g = 0;
+    while (d <= today && g++ < 600) { n++; total += p.amt; d = nextDate(d, p.every, p.anchor); }
+  }
+  if (!n) return;
+  S.update((d) => {
+    for (const x of d.assets) {
+      const p = x.plan;
+      if (!p || !p.next) continue;
+      let g = 0;
+      while (p.next <= today && g++ < 600) { applyContribution(x, p.next, p.amt); p.next = nextDate(p.next, p.every, p.anchor); }
+    }
+  }, `Aportaciones automáticas: ${n} (${money(total)})`);
+  toast(n === 1 ? `Aportación automática de ${money(total)} añadida` : `${n} aportaciones automáticas añadidas`);
+}
+
+/** Lo que las aportaciones programadas suman en un mes para cada etiqueta de inversión. */
+function plannedInvest(monthKey) {
+  const out = {};
+  const end = monthEnd(monthKey);
+  for (const a of st().assets) {
+    const p = a.plan;
+    if (!p || !p.cat || !p.start) continue;
+    let d = p.start, g = 0;
+    while (d <= end && g++ < 1200) { if (d.startsWith(monthKey)) out[p.cat] = (out[p.cat] || 0) + p.amt; d = nextDate(d, p.every, p.anchor); }
+  }
+  return out;
+}
+
+// ── recordatorios
+function reminders() {
+  const s = st();
+  if (!s) return [];
+  const today = todayISO();
+  const out = [];
+  for (const a of s.assets) {
+    if (isLinked(a)) {
+      if (!C.isLoggedIn()) { out.push({ a, kind: 'login' }); continue; }
+      const t = a.px && a.px.t;
+      if (!t || Date.now() - t > 3 * 864e5) out.push({ a, kind: 'price', t });
+      continue;
+    }
+    const manual = [...a.hist].reverse().find((h) => !h.plan);
+    const period = a.plan ? EVERY[a.plan.every].days : EVERY.month.days;
+    const age = manual ? daysBetween(manual.d, today) : 999;
+    if (age > period) out.push({ a, kind: 'value', age, period: a.plan ? a.plan.every : 'month' });
+  }
+  return out;
+}
+function updateAssetsBadge() {
+  const t = $('.tab[data-tab=assets]');
+  if (t) t.classList.toggle('alert', reminders().some((r) => r.kind === 'value' || r.kind === 'price'));
+}
+
+// ── precios automáticos
+let pxBusy = false;
+async function refreshPrices(force = false) {
+  const s = st();
+  if (pxBusy || !s || !C.isLoggedIn()) return;
+  const linked = s.assets.filter((a) => isLinked(a) && (force || !a.px || Date.now() - a.px.t > 30 * 60e3));
+  if (!linked.length) return;
+  pxBusy = true;
+  try {
+    const syms = [...new Set(linked.map((a) => a.src.sym))];
+    const r = await C.quote({ symbols: syms.join(','), currency: s.settings.currency });
+    const today = todayISO();
+    const prices = (r && r.prices) || {};
+    if (!st() || !Object.keys(prices).length) {
+      if (force) toast('No se encontró el precio: ' + Object.keys((r && r.errors) || {}).join(', '));
+      return;
+    }
+    S.update((d) => {
+      for (const x of d.assets) {
+        const q = isLinked(x) && prices[x.src.sym];
+        if (!q) continue;
+        x.px = { p: q.price, t: Date.now(), at: q.time ? q.time * 1000 : Date.now() };
+        if (!(x.units > 0)) continue;
+        sortHist(x);
+        const v = r2(x.units * q.price);
+        const same = x.hist.find((h) => h.d === today);
+        if (same) same.v = v;
+        else { const prev = entryAt(x, today); x.hist.push({ d: today, v, c: prev ? prev.c : 0, auto: 1 }); }
+        sortHist(x);
+      }
+    });
+    if (force) toast('Precios actualizados');
+  } catch (e) {
+    if (force) toast(C.esMsg(e));
+    else console.warn('Cotizaciones:', e.message);
+  } finally {
+    pxBusy = false;
+    if (ui.tab === 'assets') render();
+    updateAssetsBadge();
+  }
+}
 
 function renderAssets() {
   const v = $('#view-assets');
   const s = st();
   s.assets.forEach(sortHist);
+  updateAssetsBadge();
   if (!s.assets.length) {
     v.innerHTML = `<div class="view-title"><h1>Inversiones</h1></div>
       <div class="empty">${BONSAI_SVG}<h2>Sin activos aún</h2>
-      <p>Añade tus fondos, acciones o depósitos y registra su valor para ver cómo evolucionan día a día.</p>
+      <p>Añade tus fondos, acciones o depósitos. Puedes poner su valor a mano o buscarlos para que se actualicen solos.</p>
       <button class="btn primary" id="addAsset">${ICON.plus} Añadir activo</button></div>`;
     $('#addAsset').onclick = () => assetForm();
     return;
@@ -619,87 +778,237 @@ function renderAssets() {
 
   const today = todayISO();
   const now = investAt(today);
-  // variación diaria: última fecha registrada vs la anterior
   const dates = [...new Set(s.assets.flatMap((a) => a.hist.map((h) => h.d)))].sort();
   const lastD = dates[dates.length - 1];
   const prevD = dates.length > 1 ? dates[dates.length - 2] : null;
   const daily = prevD ? perf(s.assets, prevD, lastD) : null;
+  const mp = dates[0] <= addDays(today, -30) ? perf(s.assets, addDays(today, -30), today) : null;
+  const tp = totalPerf(s.assets);
 
   const from = rangeStartISO();
   const rp = perf(s.assets, from, today);
-  // serie del total en el rango
   const inRange = dates.filter((d) => d > from);
   const pts = [from, ...inRange];
   if (pts[pts.length - 1] !== today) pts.push(today);
   const series = pts.map((d) => s.assets.reduce((t, a) => t + assetValueAt(a, d), 0));
   const rangeName = { '1S': 'la última semana', '1M': 'el último mes', '3M': 'los últimos 3 meses', '1A': 'el último año', Todo: 'total' }[ui.range];
 
+  const rem = reminders();
+  const remValue = rem.filter((r) => r.kind === 'value');
+  const remPrice = rem.filter((r) => r.kind === 'price');
+  const remLogin = rem.filter((r) => r.kind === 'login');
+  const remCard = (remValue.length || remPrice.length || remLogin.length) ? `
+    <div class="card remind">
+      ${remValue.length ? `<div class="remind-h">${ICON.bell}<div><b>Toca actualizar el valor de mercado</b>
+        <div class="sub">${remValue.map((r) => `${esc(r.a.name)} <span class="muted">(último ${ageText(r.age === 999 ? 0 : r.age)})</span>`).join(' · ')}</div></div></div>
+        <button class="btn sm primary" id="remUpd">Actualizar valores</button>` : ''}
+      ${remPrice.length ? `<div class="remind-h" ${remValue.length ? 'style="margin-top:12px"' : ''}>${ICON.refresh}<div><b>Precio automático sin actualizar</b>
+        <div class="sub">${remPrice.map((r) => esc(r.a.name)).join(' · ')}</div></div></div>
+        <button class="btn sm" id="remPx">Reintentar</button>` : ''}
+      ${remLogin.length ? `<div class="remind-h" ${remValue.length || remPrice.length ? 'style="margin-top:12px"' : ''}>${ICON.cloud}<div><b>Inicia sesión para actualizar precios</b>
+        <div class="sub">${remLogin.map((r) => esc(r.a.name)).join(' · ')}</div></div></div>` : ''}
+    </div>` : '';
+
   v.innerHTML = `
     <div class="hero">
       <div class="hero-label">Valor de la cartera</div>
       <div class="hero-value">${money0(now.value)}</div>
       ${daily ? `<div class="delta ${daily.diff >= 0 ? 'up' : 'down'}">${signed(daily.diff)} (${pct(daily.pct)}) <span class="muted">desde ${dayLabel(prevD)}</span></div>` : '<div class="delta muted">Actualiza el valor otro día para ver la variación</div>'}
+      <div class="pf-chips">
+        <div><span class="k">Último mes</span>${pctSpan(mp)}<span class="sub">${mp ? signed(mp.diff, money0) : 'menos de un mes de datos'}</span></div>
+        <div><span class="k">Sobre lo invertido</span>${pctSpan(tp)}<span class="sub">${signed(tp.diff, money0)} de ${money0(now.contrib)}</span></div>
+      </div>
     </div>
+    ${remCard}
     <div class="card">
       <div class="seg small" id="rangeSeg" style="margin-bottom:12px">${RANGES.map(([k]) => `<button data-r="${k}" aria-pressed="${ui.range === k}">${k}</button>`).join('')}</div>
       <div class="readout"><b class="${rp.diff >= 0 ? 'pct up' : 'pct down'}" style="font-size:13px">${signed(rp.diff)} (${pct(rp.pct)})</b> rendimiento en ${rangeName}</div>
       <div class="chart" id="pfChart"></div>
-    </div>
-    <div class="card">
-      <div class="kpis">
-        <div class="kpi"><div class="k">Aportado</div><div class="v">${money0(now.contrib)}</div></div>
-        <div class="kpi"><div class="k">Valor</div><div class="v">${money0(now.value)}</div></div>
-        <div class="kpi"><div class="k">Ganancia</div><div class="v ${now.gain >= 0 ? 'inc' : 'exp'}">${signed(now.gain, money0)}</div></div>
-      </div>
-      ${now.contrib > 0 ? `<p class="note" style="margin-top:10px">Rentabilidad total ${pct((now.gain / now.contrib) * 100)} sobre lo aportado.</p>` : ''}
     </div>
     <div class="actions" style="margin-bottom:12px">
       <button class="btn primary" id="bulk">${ICON.refresh} Actualizar</button>
       <button class="btn" id="addAsset">${ICON.plus} Activo</button>
     </div>
     <div class="card" style="padding-top:6px;padding-bottom:6px">
+      <div class="list-head"><span>Activo</span><span>Mes · Total</span></div>
       <ul class="list">${s.assets.map((a) => {
         const e = entryAt(a, today) || a.hist[a.hist.length - 1];
-        const p = perf([a], from, today);
-        const sv = [from, ...a.hist.filter((h) => h.d > from).map((h) => h.d)].map((d) => entryAt(a, d) ? assetValueAt(a, d) : null);
-        const age = e ? Math.round((new Date(today) - new Date(e.d)) / 864e5) : null;
+        const m = monthPerf(a);
+        const t = totalPerf([a]);
+        const sv = [from, ...a.hist.filter((h) => h.d > from).map((h) => h.d)].map((d) => (entryAt(a, d) ? assetValueAt(a, d) : null));
+        const tags = [esc(a.type)];
+        if (isLinked(a)) tags.push('<span class="tag">auto</span>');
+        if (a.plan) tags.push(`<span class="tag">${money0(a.plan.amt)}/${EVERY[a.plan.every].short}</span>`);
+        const pending = rem.some((r) => r.a.id === a.id && r.kind === 'value');
         return `<li class="row tap asset-row" data-id="${a.id}">
-          <div class="grow"><div class="title">${esc(a.name)}</div><div class="sub">${esc(a.type)} · ${age === 0 ? 'hoy' : age === 1 ? 'ayer' : `hace ${age} días`}</div></div>
-          ${sparkline(sv, p.diff >= 0 ? 'var(--income)' : 'var(--expense)')}
-          <div style="text-align:right;min-width:86px"><div class="amt">${money0(e ? e.v : 0)}</div><div class="pct ${p.diff >= 0 ? 'up' : 'down'}">${pct(p.pct)}</div></div>
+          <div class="grow"><div class="title">${pending ? '<i class="dot-warn"></i>' : ''}${esc(a.name)}</div><div class="sub">${tags.join(' ')}</div></div>
+          ${sparkline(sv, (m || t).diff >= 0 ? 'var(--income)' : 'var(--expense)')}
+          <div style="text-align:right;min-width:92px"><div class="amt">${money0(e ? e.v : 0)}</div>
+            <div class="pcts">${pctSpan(m)}<span class="muted"> · </span>${pctSpan(t)}</div></div>
         </li>`;
       }).join('')}</ul>
     </div>
-    <p class="note">Los porcentajes muestran el rendimiento en el periodo elegido sin contar nuevas aportaciones.</p>`;
+    <p class="note"><b>Mes</b>: rendimiento de los últimos 30 días sin contar aportaciones nuevas. <b>Total</b>: ganancia sobre lo que has aportado.</p>`;
 
   $$('#rangeSeg button', v).forEach((b) => b.onclick = () => { ui.range = b.dataset.r; renderAssets(); });
   lineChart($('#pfChart'), { labels: pts.map(dayLabel), tipLabels: pts.map(dayLabelY), values: series, fmt: money, fmtAxis: moneyC, aria: 'Valor de la cartera' });
-  $('#bulk').onclick = bulkUpdate;
+  $('#bulk').onclick = () => {
+    if (s.assets.some(isLinked)) refreshPrices(true);
+    if (s.assets.some((a) => !isLinked(a))) bulkUpdate();
+  };
   $('#addAsset').onclick = () => assetForm();
+  const ru = $('#remUpd'); if (ru) ru.onclick = bulkUpdate;
+  const rpx = $('#remPx'); if (rpx) rpx.onclick = () => refreshPrices(true);
   $$('.asset-row', v).forEach((r) => r.onclick = () => assetDetail(r.dataset.id));
+}
+
+/** Buscador de activos (Yahoo Finance a través de la función de Supabase). */
+function mountSearch(body, onPick) {
+  const q = $('#aQ', body), list = $('#aRes', body);
+  let t, seq = 0;
+  q.addEventListener('input', () => {
+    clearTimeout(t);
+    const term = q.value.trim();
+    if (term.length < 2) { list.innerHTML = ''; return; }
+    t = setTimeout(async () => {
+      const my = ++seq;
+      list.innerHTML = '<li class="row muted" style="font-size:13px">Buscando…</li>';
+      try {
+        const r = await C.quote({ q: term });
+        if (my !== seq) return;
+        const res = (r && r.results) || [];
+        list.innerHTML = res.length ? res.map((x, i) => `<li class="row tap" data-i="${i}" style="padding:9px 0">
+          <div class="grow"><div class="title" style="font-size:14px">${esc(x.name)}</div><div class="sub">${esc(x.symbol)} · ${esc(YTYPE[x.type] || x.type)}${x.exchange ? ' · ' + esc(x.exchange) : ''}</div></div></li>`).join('')
+          : '<li class="row muted" style="font-size:13px">Sin resultados. Prueba con el ISIN o el ticker.</li>';
+        $$('[data-i]', list).forEach((li) => li.onclick = () => { list.innerHTML = ''; onPick(res[+li.dataset.i]); });
+      } catch (e) {
+        if (my === seq) list.innerHTML = `<li class="row" style="font-size:13px;color:var(--danger)">${esc(C.esMsg(e))}</li>`;
+      }
+    }, 450);
+  });
 }
 
 function assetForm(existing) {
   const sym = curSymbol();
   const last = existing ? existing.hist[existing.hist.length - 1] : null;
+  let mode = existing && isLinked(existing) ? 'auto' : 'manual';
+  let pick = existing && isLinked(existing) ? { ...existing.src } : null;
+  let price = existing && existing.px ? existing.px.p : null;
+  const logged = C.isLoggedIn();
+
   openSheet(existing ? 'Editar activo' : 'Nuevo activo', `
     <form id="af" autocomplete="off">
-      <div class="field"><label for="aName">Nombre</label><input class="input" id="aName" required maxlength="60" placeholder="p. ej. MSCI World" value="${esc(existing ? existing.name : '')}"></div>
+      <div class="field"><label for="aName">Nombre</label><input class="input" id="aName" maxlength="60" placeholder="p. ej. MSCI World" value="${esc(existing ? existing.name : '')}"></div>
       <div class="field"><label for="aType">Tipo</label><select class="input" id="aType">${ASSET_TYPES.map((t) => `<option ${existing && existing.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
-      ${existing ? '' : `<div class="field-row">
-        <div class="field"><label for="aVal">Valor actual (${esc(sym)})</label><input class="input" id="aVal" inputmode="decimal" required placeholder="0"></div>
-        <div class="field"><label for="aCon">Aportado (${esc(sym)})</label><input class="input" id="aCon" inputmode="decimal" placeholder="= valor"></div></div>
-      <div class="field"><label for="aDate">Fecha</label><input class="input" type="date" id="aDate" value="${todayISO()}" max="${todayISO()}"></div>`}
+      <div class="field"><span class="label-s">Valor de mercado</span>
+        <div class="seg" id="aMode"><button type="button" data-m="manual">Lo pongo yo</button><button type="button" data-m="auto">Automático</button></div></div>
+
+      <div id="mManual">
+        ${existing ? '<p class="note" style="margin:-2px 2px 14px">El valor se registra desde la ficha del activo.</p>' : `<div class="field-row">
+          <div class="field"><label for="aVal">Valor actual (${esc(sym)})</label><input class="input" id="aVal" inputmode="decimal" placeholder="0"></div>
+          <div class="field"><label for="aCon">Aportado (${esc(sym)})</label><input class="input" id="aCon" inputmode="decimal" placeholder="= valor"></div></div>
+        <div class="field"><label for="aDate">Fecha</label><input class="input" type="date" id="aDate" value="${todayISO()}" max="${todayISO()}"></div>`}
+      </div>
+
+      <div id="mAuto">
+        ${logged ? `
+        <div id="aPicked"></div>
+        <div class="field" id="aSearchF"><label for="aQ">Buscar activo</label><input class="input" id="aQ" placeholder="Nombre, ticker o ISIN (p. ej. IE00B4L5Y983)" autocomplete="off" spellcheck="false">
+          <ul class="list search-res" id="aRes"></ul></div>
+        <div id="aAutoFields">
+          <div class="field-row">
+            <div class="field"><label for="aUnits">Participaciones</label><input class="input" id="aUnits" inputmode="decimal" placeholder="0" value="${esc(existing && existing.units ? String(r2s(existing.units)).replace('.', ',') : '')}"></div>
+            <div class="field"><label for="aVal2">Valor actual (${esc(sym)})</label><input class="input" id="aVal2" inputmode="decimal" placeholder="0"></div>
+          </div>
+          <div class="field"><label for="aCon2">Aportado total (${esc(sym)})</label><input class="input" id="aCon2" inputmode="decimal" placeholder="= valor" value="${esc(last ? numInput(last.c) : '')}"></div>
+          <p class="note" style="margin:-4px 2px 14px">Escribe las participaciones o el valor actual; el otro se calcula con el precio de hoy.</p>
+        </div>` : `<p class="note" style="margin:0 2px 14px">Para que el valor se actualice solo necesitas tu cuenta: entra en Ajustes → Cuenta.</p>`}
+      </div>
+
       <button class="btn primary block" type="submit">${existing ? 'Guardar' : 'Añadir activo'}</button>
       ${existing ? `<button type="button" class="btn ghost danger block" id="aDel" style="margin-top:8px">${ICON.trash} Eliminar activo</button>` : ''}
     </form>`, (body, close) => {
+    const setMode = (m) => {
+      mode = m;
+      $$('#aMode button', body).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === m)));
+      $('#mManual', body).hidden = m !== 'manual';
+      $('#mAuto', body).hidden = m !== 'auto';
+    };
+    $$('#aMode button', body).forEach((b) => b.onclick = () => setMode(b.dataset.m));
+    setMode(mode);
+
+    if (logged) {
+      const fUnits = $('#aUnits', body), fVal = $('#aVal2', body);
+      const showPick = () => {
+        $('#aPicked', body).innerHTML = pick ? `<div class="picked"><div class="grow"><div class="title">${esc(pick.name || pick.sym)}</div>
+          <div class="sub">${esc(pick.sym)}${pick.ex ? ' · ' + esc(pick.ex) : ''} · ${price != null ? `precio ${money(price)}` : 'buscando precio…'}</div></div>
+          <button type="button" class="link" id="aChange">Cambiar</button></div>` : '';
+        $('#aSearchF', body).hidden = !!pick;
+        $('#aAutoFields', body).hidden = !pick;
+        const ch = $('#aChange', body);
+        if (ch) ch.onclick = () => { pick = null; price = null; showPick(); setTimeout(() => $('#aQ', body).focus(), 50); };
+      };
+      const recalc = (from) => {
+        if (!(price > 0)) return;
+        if (from === 'units') { const u = parseAmount(fUnits.value); fVal.value = u > 0 ? numInput(r2(u * price)) : ''; }
+        else { const v2 = parseAmount(fVal.value); fUnits.value = v2 > 0 ? String(+(v2 / price).toFixed(4)).replace('.', ',') : ''; }
+      };
+      fUnits.addEventListener('input', () => recalc('units'));
+      fVal.addEventListener('input', () => recalc('value'));
+      mountSearch(body, async (x) => {
+        pick = { sym: x.symbol, name: x.name, ex: x.exchange, kind: x.type };
+        price = null;
+        if (!$('#aName', body).value.trim()) $('#aName', body).value = x.name.slice(0, 60);
+        const ty = { ETF: 'ETF', EQUITY: 'Acción', CRYPTOCURRENCY: 'Cripto', MUTUALFUND: 'Fondo de inversión' }[x.type];
+        if (ty && !existing) $('#aType', body).value = ty;
+        showPick();
+        try {
+          const r = await C.quote({ symbols: x.symbol, currency: st().settings.currency });
+          const q = r && r.prices && r.prices[x.symbol];
+          if (!q) throw new Error('No hay precio disponible para ' + x.symbol);
+          price = q.price; showPick(); recalc(fUnits.value ? 'units' : 'value');
+        } catch (e) { $('#aPicked', body).insertAdjacentHTML('beforeend', `<p class="form-err">${esc(C.esMsg(e))}</p>`); }
+      });
+      showPick();
+      if (pick && price) recalc('units');
+    }
+
     $('#af', body).addEventListener('submit', (e) => {
       e.preventDefault();
       const name = $('#aName', body).value.trim();
       const type = $('#aType', body).value;
-      if (!name) return;
+      if (!name) { $('#aName', body).focus(); toast('Ponle un nombre'); return; }
+      const today = todayISO();
+
+      if (mode === 'auto') {
+        if (!C.isLoggedIn()) { toast('Entra en tu cuenta para el valor automático'); return; }
+        if (!pick) { $('#aQ', body).focus(); toast('Busca y elige el activo'); return; }
+        if (!(price > 0)) { toast('Aún no hay precio para este activo'); return; }
+        const u = parseAmount($('#aUnits', body).value);
+        if (!(u > 0)) { $('#aUnits', body).focus(); toast('Indica las participaciones o el valor'); return; }
+        const val = r2(u * price);
+        let con = parseAmount($('#aCon2', body).value);
+        if (con == null) con = existing ? last.c : val;
+        if (Number.isNaN(con) || con < 0) { toast('Aportado no válido'); return; }
+        const apply = (x) => {
+          x.name = name; x.type = type; x.src = pick; x.units = u;
+          x.px = { p: price, t: Date.now() };
+          const same = x.hist.find((h) => h.d === today);
+          if (same) { same.v = val; same.c = con; } else x.hist.push({ d: today, v: val, c: con, auto: 1 });
+          sortHist(x);
+        };
+        if (existing) S.update((d) => apply(d.assets.find((x) => x.id === existing.id)), `Activo editado: ${name} (${pick.sym}, ${units(u)} part.)`);
+        else S.update((d) => { const x = { id: S.uid(), hist: [] }; apply(x); d.assets.push(x); }, `Nuevo activo automático: ${name} (${pick.sym}) · ${money(val)}`);
+        close(); toast(existing ? 'Activo guardado' : 'Activo añadido'); render();
+        return;
+      }
+
       if (existing) {
-        S.update((d) => { const a = d.assets.find((x) => x.id === existing.id); a.name = name; a.type = type; }, `Activo editado: ${name}`);
+        S.update((d) => {
+          const x = d.assets.find((q) => q.id === existing.id);
+          x.name = name; x.type = type;
+          delete x.src; delete x.units; delete x.px;
+        }, `Activo editado: ${name}`);
         close(); render(); return;
       }
       const val = parseAmount($('#aVal', body).value);
@@ -707,7 +1016,7 @@ function assetForm(existing) {
       if (val == null || Number.isNaN(val) || val < 0) { $('#aVal', body).focus(); toast('Valor no válido'); return; }
       if (con == null) con = val;
       if (Number.isNaN(con) || con < 0) { $('#aCon', body).focus(); toast('Aportado no válido'); return; }
-      const date = $('#aDate', body).value || todayISO();
+      const date = $('#aDate', body).value || today;
       S.update((d) => { d.assets.push({ id: S.uid(), name, type, hist: [{ d: date, v: val, c: con }] }); }, `Nuevo activo: ${name} (${money(val)})`);
       close(); toast('Activo añadido'); render();
     });
@@ -718,7 +1027,40 @@ function assetForm(existing) {
       S.update((d) => { d.assets = d.assets.filter((x) => x.id !== existing.id); }, `Activo eliminado: ${existing.name}`);
       toast('Activo eliminado'); render();
     };
-    void last;
+  });
+}
+const r2s = (n) => +(+n).toFixed(4);
+
+function planForm(id) {
+  const a = st().assets.find((x) => x.id === id);
+  const p = a.plan;
+  const cats = (st().settings.investCats || []).filter((c) => !c.archived);
+  openSheet(p ? 'Editar aportación' : 'Aportación periódica', `
+    <form id="plF" autocomplete="off">
+      <p style="margin:0 0 14px;color:var(--text-2)">Se suma sola a «${esc(a.name)}» en cada fecha${isLinked(a) ? ', comprando participaciones al último precio' : ''}.</p>
+      <div class="field-row">
+        <div class="field"><label for="plAmt">Importe (${esc(curSymbol())})</label><input class="input" id="plAmt" inputmode="decimal" value="${esc(p ? numInput(p.amt) : '')}" placeholder="0"></div>
+        <div class="field"><label for="plEv">Frecuencia</label><select class="input" id="plEv">${Object.entries(EVERY).map(([k, o]) => `<option value="${k}" ${(p ? p.every : 'month') === k ? 'selected' : ''}>${o.label}</option>`).join('')}</select></div>
+      </div>
+      <div class="field"><label for="plDate">${p ? 'Próxima aportación' : 'Primera aportación'}</label><input class="input" type="date" id="plDate" value="${p ? p.next : todayISO()}"></div>
+      ${cats.length ? `<div class="field"><label for="plCat">Etiqueta de inversión (opcional)</label><select class="input" id="plCat"><option value="">— Ninguna —</option>${cats.map((c) => `<option value="${c.id}" ${p && p.cat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
+        <p class="note" style="margin:2px 2px 0">Al cerrar cada mes, el apartado «Invertido» vendrá ya relleno con estas aportaciones.</p></div>` : ''}
+      <p class="note" style="margin:0 2px 14px">Si la fecha ya ha pasado, se añaden también las aportaciones desde entonces.</p>
+      <button class="btn primary block" type="submit">Guardar</button>
+    </form>`, (body, close) => {
+    $('#plF', body).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const amt = parseAmount($('#plAmt', body).value);
+      if (!(amt > 0)) { $('#plAmt', body).focus(); toast('Importe no válido'); return; }
+      const every = $('#plEv', body).value;
+      const date = $('#plDate', body).value || todayISO();
+      const cat = $('#plCat', body) ? $('#plCat', body).value || null : null;
+      S.update((d) => {
+        const x = d.assets.find((q) => q.id === id);
+        x.plan = { amt, every, anchor: +date.slice(8, 10), next: date, start: p && p.start && p.start <= date ? p.start : date, cat };
+      }, `${a.name}: aportación de ${money(amt)} ${EVERY[every].label.toLowerCase()} desde ${dayLabelY(date)}`);
+      close(); processPlans(); render(); toast('Aportación programada');
+    });
   });
 }
 
@@ -728,41 +1070,67 @@ function assetDetail(id) {
   sortHist(a);
   const last = a.hist[a.hist.length - 1];
   const gain = last.v - last.c;
+  const m = monthPerf(a);
+  const t = totalPerf([a]);
+  const linked = isLinked(a);
   const rows = [...a.hist].reverse().map((h, i, arr) => {
     const prev = arr[i + 1];
     const ch = prev ? (h.v - h.c) - (prev.v - prev.c) : null;
-    return `<li class="row" style="padding:8px 0"><div class="grow"><div class="title" style="font-weight:500">${dayLabelY(h.d)}</div><div class="sub">Aportado ${money0(h.c)}</div></div>
+    const tag = h.plan ? 'Aportación automática · ' : h.auto ? 'Precio automático · ' : '';
+    return `<li class="row" style="padding:8px 0"><div class="grow"><div class="title" style="font-weight:500">${dayLabelY(h.d)}</div><div class="sub">${tag}Aportado ${money0(h.c)}</div></div>
       <div style="text-align:right"><div class="amt">${money(h.v)}</div>${ch != null ? `<div class="pct ${ch >= 0 ? 'up' : 'down'}">${signed(ch)}</div>` : ''}</div>
       <button class="icon-btn" data-del="${h.d}" aria-label="Borrar registro" style="width:32px;height:32px;color:var(--muted)">${ICON.trash}</button></li>`;
   }).join('');
+  const p = a.plan;
+  const pxAge = a.px && a.px.t ? ago(a.px.t) : 'nunca';
 
   openSheet(a.name, `
-    <div style="margin:-6px 0 10px" class="muted">${esc(a.type)}</div>
-    <div class="kpis" style="margin-bottom:12px">
+    <div style="margin:-6px 0 10px" class="muted">${esc(a.type)}${linked ? ` · ${esc(a.src.sym)}` : ''}</div>
+    <div class="kpis" style="margin-bottom:8px">
       <div class="kpi"><div class="k">Valor</div><div class="v">${money0(last.v)}</div></div>
       <div class="kpi"><div class="k">Aportado</div><div class="v">${money0(last.c)}</div></div>
       <div class="kpi"><div class="k">Ganancia</div><div class="v ${gain >= 0 ? 'inc' : 'exp'}">${signed(gain, money0)}</div></div>
     </div>
+    <div class="kpis two" style="margin-bottom:12px">
+      <div class="kpi"><div class="k">Último mes</div><div class="v">${pctSpan(m)}</div><div class="sub">${m ? signed(m.diff) : 'menos de un mes de datos'}</div></div>
+      <div class="kpi"><div class="k">Sobre lo invertido</div><div class="v">${pctSpan(t)}</div><div class="sub">${signed(t.diff)}</div></div>
+    </div>
     <div class="chart" id="adChart"></div>
-    <form id="upd" class="card" style="margin:14px 0;background:var(--surface-2)" autocomplete="off">
-      <div class="card-head" style="margin-bottom:8px"><h3 class="card-title">Registrar valor</h3></div>
+
+    ${linked ? `<div class="card" style="margin:14px 0;background:var(--surface-2)">
+      <div class="setting" style="padding:0 0 10px"><div><div class="t">Precio ${a.px ? money(a.px.p) : '—'}</div>
+        <div class="d">${units(a.units)} participaciones · actualizado ${pxAge}</div></div>
+        <button class="btn sm" id="pxNow">${ICON.refresh}</button></div>
+      <p class="note" style="margin:0">El valor se actualiza solo al abrir la app. Para cambiar las participaciones usa «Editar».</p>
+    </div>` : `<form id="upd" class="card" style="margin:14px 0;background:var(--surface-2)" autocomplete="off">
+      <div class="card-head" style="margin-bottom:8px"><h3 class="card-title">Registrar valor de mercado</h3></div>
       <div class="field-row">
-        <div class="field"><label for="uVal">Valor</label><input class="input" id="uVal" inputmode="decimal" required placeholder="${esc(numInput(last.v))}"></div>
+        <div class="field"><label for="uVal">Valor</label><input class="input" id="uVal" inputmode="decimal" placeholder="${esc(numInput(last.v))}"></div>
         <div class="field"><label for="uCon">Aportado total</label><input class="input" id="uCon" inputmode="decimal" value="${esc(numInput(last.c))}"></div>
       </div>
       <div class="field"><label for="uDate">Fecha</label><input class="input" type="date" id="uDate" value="${todayISO()}" max="${todayISO()}"></div>
       <button class="btn primary block" type="submit">Guardar valor</button>
-    </form>
+    </form>`}
+
+    <div class="card plan-card">
+      ${p ? `<div class="setting" style="padding:0"><div><div class="t">${money(p.amt)} · ${EVERY[p.every].label.toLowerCase()}</div>
+          <div class="d">Próxima: ${dayLabelY(p.next)}${p.cat ? ` · ${esc(catName(p.cat))}` : ''}</div></div>
+          <div class="actions"><button class="btn sm" id="plEdit">Editar</button><button class="btn sm danger" id="plOff">Quitar</button></div></div>`
+      : `<div class="setting" style="padding:0"><div><div class="t">Aportación periódica</div><div class="d">Suma automáticamente lo que aportas cada mes, semana…</div></div>
+          <button class="btn sm primary" id="plNew">Programar</button></div>`}
+    </div>
+
     <div class="section-h" style="margin-top:4px">Historial</div>
     <ul class="list">${rows}</ul>
-    <div class="actions" style="margin-top:14px"><button class="btn" id="edit">Editar</button></div>`,
+    <div class="actions" style="margin-top:14px"><button class="btn" id="edit">Editar activo</button></div>`,
   (body, close) => {
     lineChart($('#adChart', body), { labels: a.hist.map((h) => dayLabel(h.d)), tipLabels: a.hist.map((h) => dayLabelY(h.d)), values: a.hist.map((h) => h.v), fmt: money, fmtAxis: moneyC, height: 150 });
-    $('#upd', body).addEventListener('submit', (e) => {
+    const upd = $('#upd', body);
+    if (upd) upd.addEventListener('submit', (e) => {
       e.preventDefault();
       const val = parseAmount($('#uVal', body).value);
       const con = parseAmount($('#uCon', body).value);
-      if (val == null || Number.isNaN(val) || val < 0) { toast('Valor no válido'); return; }
+      if (val == null || Number.isNaN(val) || val < 0) { $('#uVal', body).focus(); toast('Valor no válido'); return; }
       const d0 = $('#uDate', body).value || todayISO();
       S.update((d) => {
         const x = d.assets.find((q) => q.id === id);
@@ -773,6 +1141,17 @@ function assetDetail(id) {
       }, `${a.name}: valor ${money(val)} el ${dayLabelY(d0)}`);
       close(); toast('Valor registrado'); render();
     });
+    const pxNow = $('#pxNow', body);
+    if (pxNow) pxNow.onclick = async () => { close(); await refreshPrices(true); };
+    const plNew = $('#plNew', body), plEdit = $('#plEdit', body), plOff = $('#plOff', body);
+    if (plNew) plNew.onclick = () => { close(); setTimeout(() => planForm(id), 280); };
+    if (plEdit) plEdit.onclick = () => { close(); setTimeout(() => planForm(id), 280); };
+    if (plOff) plOff.onclick = async () => {
+      close();
+      if (!(await confirmSheet('Quitar aportación', 'Dejarán de sumarse aportaciones automáticas. Las ya añadidas se mantienen.', 'Quitar', true))) { assetDetail(id); return; }
+      S.update((d) => { delete d.assets.find((q) => q.id === id).plan; }, `${a.name}: aportación periódica quitada`);
+      render(); assetDetail(id);
+    };
     $$('[data-del]', body).forEach((b) => b.onclick = async () => {
       const dd = b.dataset.del;
       if (a.hist.length === 1) { toast('Es el único registro; elimina el activo si quieres'); return; }
@@ -781,21 +1160,24 @@ function assetDetail(id) {
       S.update((d) => { const x = d.assets.find((q) => q.id === id); x.hist = x.hist.filter((h) => h.d !== dd); }, `${a.name}: borrado registro del ${dayLabelY(dd)}`);
       render(); assetDetail(id);
     });
-    $('#edit', body).onclick = () => { close(); assetForm(a); };
+    $('#edit', body).onclick = () => { close(); setTimeout(() => assetForm(a), 280); };
   });
 }
 
 function bulkUpdate() {
   const s = st();
   const sym = curSymbol();
-  openSheet('Actualizar valores', `
+  const pending = new Set(reminders().filter((r) => r.kind === 'value').map((r) => r.a.id));
+  const manual = s.assets.filter((a) => !isLinked(a)).sort((x, y) => (pending.has(y.id) ? 1 : 0) - (pending.has(x.id) ? 1 : 0));
+  if (!manual.length) return;
+  openSheet('Valor de mercado', `
     <form id="bu" autocomplete="off">
       <div class="field"><label for="bDate">Fecha</label><input class="input" type="date" id="bDate" value="${todayISO()}" max="${todayISO()}"></div>
       <div class="card" style="padding:4px 12px">
-      ${s.assets.map((a) => { const l = a.hist[a.hist.length - 1]; return `<div class="money-row"><label for="b-${a.id}">${esc(a.name)}<div class="sub muted" style="font-size:12px">Último: ${money(l.v)}</div></label>
+      ${manual.map((a) => { const l = a.hist[a.hist.length - 1]; return `<div class="money-row"><label for="b-${a.id}">${pending.has(a.id) ? '<i class="dot-warn"></i>' : ''}${esc(a.name)}<div class="sub muted" style="font-size:12px">Último: ${money(l.v)} · ${dayLabel(l.d)}</div></label>
         <div class="money"><input id="b-${a.id}" data-id="${a.id}" inputmode="decimal" placeholder="${esc(numInput(l.v))}"><span class="cur">${esc(sym)}</span></div></div>`; }).join('')}
       </div>
-      <p class="note" style="margin:-4px 2px 14px">Deja en blanco los que no hayan cambiado.</p>
+      <p class="note" style="margin:-4px 2px 14px">Deja en blanco los que no hayan cambiado.${s.assets.some(isLinked) ? ' Los activos automáticos se actualizan solos.' : ''}</p>
       <button class="btn primary block" type="submit">Guardar</button>
     </form>`, (body, close) => {
     $('#bu', body).addEventListener('submit', (e) => {
@@ -1197,6 +1579,7 @@ function openAuth(mode, emailPrefill = '') {
 
 function afterLogin(r) {
   buildFormatters(); applyTheme(); render(); renderAccountCard(); renderSettingsIfOpen();
+  processPlans(); refreshPrices(); updateAssetsBadge();
   if (r && r.code) setTimeout(() => showRecoveryCode(r.code, true), 280);
   else toast(r && r.merged ? 'Sesión iniciada · datos combinados' : 'Sesión iniciada');
 }
@@ -1392,7 +1775,7 @@ function showLock() {
 
 document.addEventListener('visibilitychange', async () => {
   if (document.hidden) { hiddenAt = Date.now(); return; }
-  if (st() && !(S.isEncrypted() && hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS)) C.syncNow();
+  if (st() && !(S.isEncrypted() && hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS)) { C.syncNow(); processPlans(); refreshPrices(); updateAssetsBadge(); }
   if (S.isEncrypted() && st() && hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS) {
     await S.lockNow();
     // retira los datos del DOM
@@ -1427,10 +1810,13 @@ function startApp() {
       if (l) l.innerHTML = syncLabel();
     });
     window.addEventListener('online', () => C.syncNow());
-    setInterval(() => { if (!document.hidden) C.syncNow(); }, 5 * 60 * 1000);
+    setInterval(() => { if (!document.hidden && st()) { C.syncNow(); processPlans(); refreshPrices(); } }, 5 * 60 * 1000);
   }
   showTab(ui.tab);
-  C.init({ onRemote: () => { buildFormatters(); applyTheme(); render(); renderSettingsIfOpen(); } });
+  C.init({ onRemote: () => { buildFormatters(); applyTheme(); render(); renderSettingsIfOpen(); updateAssetsBadge(); } });
+  processPlans();
+  refreshPrices();
+  updateAssetsBadge();
   updateSyncDot();
   handlePendingAuth();
 }

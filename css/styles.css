@@ -466,3 +466,29 @@ select.input {
 #openSettings { position: relative; }
 #openSettings.alert::after { content: ""; position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); border: 2px solid var(--bg); }
 .btn:disabled { opacity: .6; cursor: default; }
+
+/* ───────────── v1.3 · inversiones ───────────── */
+.pf-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.pf-chips > div { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; display: grid; gap: 1px; min-width: 0; }
+.pf-chips .k { font-size: 11px; font-weight: 600; letter-spacing: .03em; color: var(--muted); }
+.pf-chips .pct { font-size: 18px; }
+.pf-chips .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pcts { white-space: nowrap; }
+.pcts .pct { font-size: 12px; }
+.list-head { display: flex; justify-content: space-between; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 6px 0 2px; }
+.tag { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: var(--surface-2); color: var(--text-2); vertical-align: 1px; }
+.kpis.two { grid-template-columns: 1fr 1fr; }
+.kpi .sub { font-size: 11.5px; color: var(--muted); }
+.kpi .v .pct { font-size: 15px; }
+.remind { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface)); }
+.remind-h { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 10px; }
+.remind-h svg { width: 20px; height: 20px; flex: none; color: var(--accent); margin-top: 1px; }
+.remind-h .sub { font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
+.dot-warn { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--expense); margin-right: 6px; vertical-align: 2px; }
+.tab.alert::before { content: ""; position: absolute; top: 14px; left: calc(50% + 10px); width: 7px; height: 7px; border-radius: 50%; background: var(--expense); border: 2px solid var(--surface); }
+.search-res { margin-top: 4px; max-height: 260px; overflow: auto; }
+.search-res .row { border-bottom: 1px solid var(--line); }
+.picked { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--accent); border-radius: var(--r); background: var(--accent-soft); margin-bottom: 12px; }
+.picked .title { font-weight: 600; font-size: 14px; }
+.picked .sub { font-size: 12px; color: var(--text-2); }
+.plan-card { padding: 12px 14px; }

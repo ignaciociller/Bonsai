@@ -67,6 +67,7 @@ export function esMsg(e) {
   if (/weak_password|Password should/i.test(m + c)) return 'La contraseña no cumple los requisitos.';
   if (/email_address_invalid|invalid.*email|Unable to validate email/i.test(m + c)) return 'Ese email no es válido.';
   if (c === 'expired') return 'La sesión ha caducado. Vuelve a entrar.';
+  if (c === 'nofn') return 'Falta instalar la función de cotizaciones en Supabase (ver README).';
   return m || 'Ha ocurrido un error.';
 }
 
@@ -446,3 +447,15 @@ export async function reauth(password) {
   return signIn(c.email, password);
 }
 
+
+// ───────────── cotizaciones (función «quote» en Supabase) ─────────────
+/** { q } busca activos; { symbols, currency } devuelve precios. Requiere sesión iniciada. */
+export async function quote(params) {
+  if (!isLoggedIn()) throw new CloudError('Inicia sesión para usar las cotizaciones', 'expired');
+  try {
+    return await api('/functions/v1/quote?' + new URLSearchParams(params));
+  } catch (e) {
+    if (e.status === 404) throw new CloudError('Función no encontrada', 'nofn');
+    throw e;
+  }
+}

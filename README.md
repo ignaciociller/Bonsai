@@ -37,6 +37,7 @@ js/app.js               Pantallas: Resumen, Registrar mes, Inversiones y Ajustes
 js/store.js             Almacenamiento local y cifrado con PIN
 js/cloud.js             Cuenta, cifrado de extremo a extremo y sincronización
 js/config.js            URL y clave pública de Supabase
+supabase/functions/quote/index.ts   Función de cotizaciones (se pega en Supabase)
 js/charts.js            Gráficos SVG propios (sin librerías)
 js/theme-boot.js        Aplica el tema antes de pintar
 fonts/                  Manrope + Instrument Serif (incluidas, sin llamadas externas)
@@ -59,6 +60,29 @@ Opcional. Desde Ajustes → Cuenta puedes crear una cuenta para usar Bonsai en v
 - Los cambios se suben solos y se combinan entre dispositivos (cada mes y cada activo se fusiona por
   separado; gana el cambio más reciente). La app sigue funcionando sin conexión.
 - Si cambias de proyecto de Supabase, actualiza `js/config.js` y el dominio en la CSP de `index.html`.
+
+## Precios automáticos (función «quote» de Supabase)
+Los activos en modo «Automático» se buscan por nombre, ticker o ISIN y su precio se actualiza solo
+al abrir la app (como mucho cada 30 min). Para ello hay una pequeña función en tu Supabase que consulta
+los datos públicos de Yahoo Finance y convierte el precio a tu moneda. Requiere tener la sesión iniciada.
+
+Instalación (una vez, desde el panel de Supabase):
+1. **Edge Functions → Deploy a new function → Via Editor**.
+2. Nombre: `quote` (exactamente así).
+3. Borra el código de ejemplo y pega el de `supabase/functions/quote/index.ts`.
+4. **Deploy**. Deja activada la verificación de JWT (viene así por defecto).
+
+Yahoo Finance no tiene una API oficial: si algún día deja de responder, los activos automáticos
+avisan de que el precio no se ha actualizado y puedes pasarlos a «Lo pongo yo» desde «Editar activo».
+
+## Inversiones
+- **Último mes**: rendimiento de los últimos 30 días sin contar aportaciones nuevas.
+- **Sobre lo invertido**: (valor − aportado) / aportado.
+- **Aportación periódica** (en la ficha de cada activo): se suma sola en cada fecha (semanal, mensual,
+  trimestral o anual). En activos automáticos compra participaciones al último precio. Si la enlazas con
+  una etiqueta de inversión, el apartado «Invertido» del mes vendrá ya relleno.
+- **Recordatorios**: si un activo manual no tiene valor de mercado del último periodo (el de su
+  aportación, o un mes), aparece un aviso en Inversiones y un punto en la pestaña.
 
 ## Privacidad y seguridad
 - Sin cuenta, los datos se guardan **sólo en el navegador del dispositivo** (`localStorage`). No hay analítica.

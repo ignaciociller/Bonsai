@@ -1,6 +1,6 @@
 // Bonsai · service worker: funciona sin conexión.
 // Al publicar cambios, sube la versión para que los móviles descarguen lo nuevo.
-const CACHE = 'bonsai-v1.2.0';
+const CACHE = 'bonsai-v1.3.0';
 const ASSETS = [
   './',
   './index.html',
